@@ -66,7 +66,22 @@ pip install -r requirements.txt
 
 The server needs **MOODLE_URL** and **MOODLE_TOKEN** in the environment. In Cursor you set them in the MCP config so the token never lives in a file.
 
-1. Get your Moodle REST URL and a web service token (Site administration → Plugins → Web services → Manage tokens). For Uni Wien: `https://moodle.univie.ac.at/webservice/rest/server.php`.
+### Getting your token
+
+You use your existing browser session, no extra software and no “real” hack - Moodle simply puts the token in a redirect URL, and you capture it.
+
+1. **Be logged in to Moodle** in your browser (e.g. via Uni Wien SSO).
+2. **Open DevTools** (F12) → **Network** tab, enable **Preserve log**.
+3. **Open the mobile launch URL** in the same browser (same site as your Moodle):  
+   `https://moodle.univie.ac.at/admin/tool/mobile/launch.php?service=moodle_mobile_app&passport=12345`
+4. **Catch the redirect:** Moodle will redirect to a URL that starts with `moodlemobile://token=...`. In the Network tab, find that redirect (or copy the target URL from the address bar if it briefly appears there). The token is in that URL.
+5. **Extract the key:** The value is often Base64‑encoded. Decode it and take the 32‑character token (the core part Moodle uses for the REST API). That’s your **MOODLE_TOKEN**.
+
+So: you “trick” Moodle into issuing a mobile token for your current session and read it from the redirect — no admin rights required.
+
+### Cursor MCP setup
+
+1. **MOODLE_URL** for Uni Wien: `https://moodle.univie.ac.at/webservice/rest/server.php`.
 2. Open Cursor **Settings → MCP** (or edit `~/.cursor/mcp.json` on macOS).
 3. Add a server entry like this (use your paths and token):
 
