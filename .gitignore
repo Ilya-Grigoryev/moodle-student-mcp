@@ -1,0 +1,8 @@
+.venv/
+.env
+*.pyc
+__pycache__/
+
+test_mcp_client.py
+
+.cursor/
