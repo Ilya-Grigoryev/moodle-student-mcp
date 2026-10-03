@@ -24,9 +24,11 @@ download_files(course="SE2", dest="~/Uni/SE2/materials", layout="sections")  # o
 ```
 
 Repeated runs download only new or changed files (tracked in `.moodle-sync.json` in the folder) and
-never delete anything. Videos are skipped unless `include_videos=true`. File names are kept as in
-Moodle with spaces replaced by `_` (`sanitize_names=false` keeps spaces). Files you already put there
-by hand with the same name and size are adopted instead of downloaded again.
+never delete anything. Files you edited locally (annotations…) are never overwritten — a newer Moodle
+version is saved next to them as `name (moodle YYYY-MM-DD).ext`. Videos are skipped unless
+`include_videos=true`. File names are kept as in Moodle with spaces replaced by `_` (`sanitize_names=false`
+keeps spaces). Files you already put there by hand with the same name and size are adopted instead of
+downloaded again.
 
 ## Course "passport" / status page
 

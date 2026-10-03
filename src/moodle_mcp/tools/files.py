@@ -264,7 +264,8 @@ async def download_files(
     dry_run: Annotated[bool, Field(description="Only show what would be downloaded")] = False,
 ) -> str:
     """Sync a course's files into a local folder: downloads new and changed files, skips unchanged ones
-    (tracked in .moodle-sync.json), never deletes anything. Videos are skipped unless requested."""
+    (tracked in .moodle-sync.json), never deletes anything and never overwrites files you edited
+    (a newer Moodle version is saved next to them). Videos are skipped unless requested."""
     if layout not in ("flat", "sections"):
         raise UserError("layout must be 'flat' or 'sections'.")
     c = await app.courses.resolve(course)

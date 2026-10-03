@@ -258,7 +258,7 @@ Overview: Software Quality
 
 ### `download_files`
 
-Sync a course's files into a local folder: downloads new and changed files, skips unchanged ones (tracked in .moodle-sync.json), never deletes anything. Videos are skipped unless requested.
+Sync a course's files into a local folder: downloads new and changed files, skips unchanged ones (tracked in .moodle-sync.json), never deletes anything and never overwrites files you edited (a newer Moodle version is saved next to them). Videos are skipped unless requested.
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
