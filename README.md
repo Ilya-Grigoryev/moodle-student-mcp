@@ -48,7 +48,7 @@ Claude: (get_deadlines) Mon 05.10. 14:00 — SE2 Worksheet 1 closes, not attempt
 | `get_notifications` / `get_messages` | Moodle notifications and private/group messages |
 | `list_files` | Every file of a course (resources, folders, pages, books, assignment attachments) |
 | `read_file` | Text of PDF (per page), PPTX (per slide + notes), DOCX, XLSX, ODT, notebooks, HTML, code; images are shown to the model |
-| `download_files` | Incremental sync of a course's files into a folder (skips unchanged, never deletes, videos opt-in) |
+| `download_files` | Incremental sync of a course's files into a folder (skips unchanged, never deletes or overwrites your edits, videos opt-in) |
 | `get_updates` | What changed since your last check (or a date): activities, files, posts, grades, notifications |
 | `fetch_page` | Any Moodle page as Markdown via the optional web session |
 

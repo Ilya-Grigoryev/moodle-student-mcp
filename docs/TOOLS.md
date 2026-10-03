@@ -65,7 +65,7 @@ Everything about one activity: description, dates, files and type-specific detai
 
 ### `search`
 
-Search section names/summaries, activity names and descriptions, labels, file names and page texts across courses. Returns matches grouped by course with cmids and snippets.
+Search section names/summaries, activity names and descriptions, labels, file names and page texts across courses (not the contents of files — use read_file for that). Returns matches grouped by course with cmids and snippets.
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -263,7 +263,7 @@ Sync a course's files into a local folder: downloads new and changed files, skip
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `course` | str \| int | required | Course id, LV number (051050), acronym (SE2), shortname or part of the title; add e.g. '2025W' to pick an older run |
-| `dest` | str \| null | null | Target folder (created if missing). Default: <download_dir>/<semester> <course> |
+| `dest` | str \| null | null | Target folder, absolute or relative to your home directory (created if missing). Default: <download_dir>/<semester> <course> |
 | `section` | str \| int \| null | null | Only this section (number or name part) |
 | `activity` | str \| int \| null | null | Only files of this activity (cmid) |
 | `include_videos` | bool | false | Also download videos (can be large) |
