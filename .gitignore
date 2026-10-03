@@ -2,7 +2,10 @@
 .env
 *.pyc
 __pycache__/
-
-test_mcp_client.py
-
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+.DS_Store
 .cursor/

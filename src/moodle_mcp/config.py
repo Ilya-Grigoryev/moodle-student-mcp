@@ -1,41 +1,133 @@
-"""Load and validate Moodle configuration from environment.
+"""Settings: environment variables override the JSON config file written by `moodle-mcp setup`."""
 
-Expects MOODLE_URL and MOODLE_TOKEN to be set by the MCP client (e.g. Cursor
-mcp.json env block); no .env file is used.
-"""
+from __future__ import annotations
 
+import json
 import os
-from typing import NamedTuple
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+WS_PATH = "/webservice/rest/server.php"
+
+ENV_KEYS = {
+    "url": "MOODLE_URL",
+    "token": "MOODLE_TOKEN",
+    "private_token": "MOODLE_PRIVATE_TOKEN",
+    "lang": "MOODLE_LANG",
+    "timezone": "MOODLE_TIMEZONE",
+    "download_dir": "MOODLE_DOWNLOAD_DIR",
+}
 
 
-class MoodleConfig(NamedTuple):
-    """Moodle API URL and web service token."""
+class ConfigError(Exception):
+    """Configuration is missing or invalid."""
 
-    url: str
+
+def config_path() -> Path:
+    custom = os.environ.get("MOODLE_MCP_CONFIG")
+    if custom:
+        return Path(custom).expanduser()
+    base = os.environ.get("XDG_CONFIG_HOME") or "~/.config"
+    return Path(base).expanduser() / "moodle-mcp" / "config.json"
+
+
+def state_dir() -> Path:
+    custom = os.environ.get("MOODLE_MCP_STATE_DIR")
+    if custom:
+        return Path(custom).expanduser()
+    base = os.environ.get("XDG_STATE_HOME") or "~/.local/state"
+    return Path(base).expanduser() / "moodle-mcp"
+
+
+def cache_dir() -> Path:
+    custom = os.environ.get("MOODLE_MCP_CACHE_DIR")
+    if custom:
+        return Path(custom).expanduser()
+    base = os.environ.get("XDG_CACHE_HOME") or "~/.cache"
+    return Path(base).expanduser() / "moodle-mcp"
+
+
+def normalize_site_url(url: str) -> str:
+    """Accept the site root or the full REST endpoint and return the site root without trailing slash."""
+    url = url.strip()
+    if not url:
+        return url
+    if not re.match(r"^https?://", url):
+        url = "https://" + url
+    url = url.split("?", 1)[0].rstrip("/")
+    for suffix in (WS_PATH, "/webservice/rest", "/login/index.php", "/my", "/my/courses.php"):
+        if url.endswith(suffix):
+            url = url[: -len(suffix)]
+    return url.rstrip("/")
+
+
+@dataclass(frozen=True)
+class Settings:
+    site_url: str
     token: str
+    private_token: str | None = None
+    lang: str = "en"
+    timezone: str = "Europe/Vienna"
+    download_dir: Path = field(default_factory=lambda: Path("~/Downloads/moodle").expanduser())
+    state_dir: Path = field(default_factory=state_dir)
+    cache_dir: Path = field(default_factory=cache_dir)
+
+    @property
+    def ws_url(self) -> str:
+        return self.site_url + WS_PATH
+
+    @property
+    def host(self) -> str:
+        return re.sub(r"^https?://", "", self.site_url).split("/", 1)[0].lower()
 
 
-def get_moodle_url() -> str:
-    """Return the Moodle REST API base URL."""
-    return _get_config().url
+def read_config_file(path: Path | None = None) -> dict[str, Any]:
+    path = path or config_path()
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ConfigError(f"Cannot read config file {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ConfigError(f"Config file {path} must contain a JSON object")
+    return data
 
 
-def get_moodle_token() -> str:
-    """Return the Moodle web service token."""
-    return _get_config().token
+def write_config_file(values: dict[str, Any], path: Path | None = None) -> Path:
+    path = path or config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    existing = read_config_file(path) if path.exists() else {}
+    existing.update({k: v for k, v in values.items() if v is not None})
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(existing, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    os.chmod(tmp, 0o600)
+    tmp.replace(path)
+    return path
 
 
-def get_moodle_config() -> MoodleConfig:
-    """Load and return validated Moodle config (url, token)."""
-    return _get_config()
-
-
-def _get_config() -> MoodleConfig:
-    url = os.environ.get("MOODLE_URL", "").strip()
-    token = os.environ.get("MOODLE_TOKEN", "").strip()
+def load_settings() -> Settings:
+    values: dict[str, Any] = dict(read_config_file())
+    for key, env in ENV_KEYS.items():
+        env_value = os.environ.get(env, "").strip()
+        if env_value:
+            values[key] = env_value
+    url = normalize_site_url(str(values.get("url") or ""))
+    token = str(values.get("token") or "").strip()
     if not url or not token:
-        raise ValueError(
-            "MOODLE_URL and MOODLE_TOKEN must be set in the environment "
-            "(e.g. in Cursor: Settings → MCP → your server → env)"
+        raise ConfigError(
+            "Moodle is not configured. Run `moodle-mcp setup` in a terminal, or set MOODLE_URL and "
+            "MOODLE_TOKEN in the MCP server's environment."
         )
-    return MoodleConfig(url=url, token=token)
+    kwargs: dict[str, Any] = {"site_url": url, "token": token}
+    if values.get("private_token"):
+        kwargs["private_token"] = str(values["private_token"]).strip()
+    if values.get("lang"):
+        kwargs["lang"] = str(values["lang"]).strip()
+    if values.get("timezone"):
+        kwargs["timezone"] = str(values["timezone"]).strip()
+    if values.get("download_dir"):
+        kwargs["download_dir"] = Path(str(values["download_dir"])).expanduser()
+    return Settings(**kwargs)
