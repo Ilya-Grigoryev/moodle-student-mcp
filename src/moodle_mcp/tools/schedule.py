@@ -152,6 +152,12 @@ async def get_deadlines(
     start = now - overdue_days * 86400
     end = now + days * 86400
     events = await _action_events(c, start, end)
+    hidden_count = 0
+    if c is None:
+        excluded = {x.id for x in await app.courses.all() if x.excluded}
+        kept = [e for e in events if int((e.get("course") or {}).get("id") or 0) not in excluded]
+        hidden_count = len(events) - len(kept)
+        events = kept
     events.sort(key=lambda e: (e.get("timesort") or 0, e.get("id")))
     scope = f" for {c.title}" if c else ""
     if not events:
@@ -192,6 +198,8 @@ async def get_deadlines(
             ts = int(e.get("timesort") or 0)
             out.append(f"\n## {timeutil.fmt_date(ts)} ({timeutil.relative(timeutil.day_bounds(day)[0]) if day != timeutil.now().date() else 'today'})")
         out.append(line(e))
+    if hidden_count:
+        out.append(f"\n({hidden_count} item(s) from excluded/hidden courses not shown — pass `course` to see them.)")
     out.append("\nOnly items Moodle still lists as open are shown; use get_calendar for all events and get_activity(cmid) for details.")
     return fmt.cap("\n".join(out))
 

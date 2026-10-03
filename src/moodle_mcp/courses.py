@@ -118,6 +118,7 @@ class Course:
     hidden: bool
     url: str
     acronyms: set[str] = field(default_factory=set)
+    excluded: bool = False
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     @property
@@ -168,11 +169,19 @@ class CourseIndex:
                 raw=c,
             )
             course.acronyms = acronyms(title)
+            course.excluded = course.hidden or self._is_excluded(course)
             courses.append(course)
         courses.sort(key=lambda x: (semester_key(x.semester), x.startdate, x.id), reverse=True)
         self._courses = courses
         self._loaded_at = time.monotonic()
         return courses
+
+    def _is_excluded(self, c: Course) -> bool:
+        for entry in self.client.settings.exclude_courses:
+            e = fold(entry)
+            if e == str(c.id) or e == (c.lv or "") or e == fold(c.shortname) or e in c.acronyms or (len(e) > 3 and e in fold(c.title)):
+                return True
+        return False
 
     async def current_semester(self) -> str:
         """Semester by date; switches early when courses of the next semester already started (or start ≤ 3 weeks)."""
@@ -189,10 +198,16 @@ class CourseIndex:
         sems = {c.semester for c in await self.all() if c.semester}
         return sorted(sems, key=semester_key, reverse=True)
 
-    async def select(self, semester: str | None = "current") -> list[Course]:
-        """Courses for 'current' | 'past' | 'all' | a semester code like 2026W."""
+    async def select(self, semester: str | None = "current", *, include_excluded: bool = False) -> list[Course]:
+        """Courses for 'current' | 'past' | 'all' | a semester code like 2026W.
+
+        Courses the user hid in Moodle's course overview or listed in `exclude_courses` are left out of the
+        current semester unless include_excluded=True (they stay reachable by name/id).
+        """
         courses = await self.all()
         sel = (semester or "current").strip().lower()
+        if sel in ("current", "now", "this", "") and not include_excluded:
+            courses = [c for c in courses if not c.excluded]
         if sel in ("all", "*", "any"):
             return courses
         current = await self.current_semester()

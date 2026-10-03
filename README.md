@@ -1,121 +1,212 @@
-# Moodle MCP Server
+# Moodle Student MCP
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![MCP SDK 2.x](https://img.shields.io/badge/MCP-2.x-purple.svg)](https://modelcontextprotocol.io)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**Hey Uni Wien students — you'll like this.** This MCP server connects **our Moodle** (moodle.univie.ac.at) with an LLM. Use Cursor (or another MCP client), and you can ask in plain language about your courses, materials, and deadlines; the AI uses Moodle's API through this server to answer.
+An [MCP](https://modelcontextprotocol.io) server that gives Claude (or any MCP client) **read access to
+your Moodle as a student**: courses of every semester, deadlines with submission status, grades and
+teacher feedback, announcements and forums, quiz reviews, files (read as text or synced to a folder)
+and "what changed since last time".
 
-## What it can do
+Built and tested against the University of Vienna's Moodle (moodle.univie.ac.at, Moodle 5.2) but works
+with any Moodle that has the mobile web service enabled — which is nearly all of them.
 
-| Tool | Description |
-|------|-------------|
-| **get_site_info** | Your Moodle identity: `userid`, `username`, `fullname`. Use `userid` for the other tools. |
-| **get_enrolled_courses** | List of courses you're enrolled in (recent ones, up to 12). |
-| **get_course_contents** | Course structure: sections, module names, and links to materials (resources, PDFs, etc.). |
-| **get_course_assignments** | Assignments for a course: descriptions and due dates (when Moodle exposes them via the API). |
-
-## Example: asking the LLM about a course
-
-Once the server is configured in Cursor, you can ask in chat. The LLM will call the Moodle tools and summarize the result. Example with a fictional course:
-
-**You:** What's in course 780012 and what do I need to hand in?
-
-**LLM** (after calling `get_course_contents` and `get_course_assignments`):
-
-> **Course:** 2025W 123456 Introduction to Machine Learning  
-> **Course ID:** 780012  
->
-> **Structure — 5 sections:**  
-> 1. **General** — Announcements forum  
-> 2. **Week 1–2: Basics** — Slides, reading list, link to first lecture  
-> 3. **Week 3–4: Supervised Learning** — Lecture notes, practice sheet 1  
-> 4. **Assignments** — Assignment 1 and 2 descriptions and submission links  
-> 5. **Exam** — Scope and dates  
->
-> **Assignments:**  
-> - **Assignment 1 — Linear regression** (due 2026-04-01): Implement and report.  
-> - **Assignment 2 — Classification** (due 2026-05-01): Train a classifier on the provided dataset.
-
----
-
-**Note:** This project has just started and will be actively developed when time allows. Many more features could be added (e.g. calendars, grades, forums), and the server could be used together with tools like Notion for planning and notes.
-
-## Requirements
-
-- **Python 3.10+**
-- Uni Wien Moodle account and a [web service token](https://docs.moodle.org/en/Web_services#Creating_a_token) (if your faculty/admin has enabled it)
-
-## Installation
-
-```bash
-git clone https://github.com/Ilya-Grigoryev/moodle-student-mcp.git
-cd moodle-student-mcp
-python -m venv .venv
-source .venv/bin/activate   # On Windows: .venv\Scripts\activate
-pip install -e .
+```
+You:    What do I have to do this week?
+Claude: (get_deadlines) Mon 05.10. 14:00 — SE2 Worksheet 1 closes, not attempted yet.
+        Wed 07.10. 23:59 — DLfNLP Quiz 01 … Thu 08.10. — your SE2 group-switch registration …
 ```
 
-Without editable install:
+## What you can ask
+
+- *"What's due in the next two weeks? Did I forget to submit anything?"* — flags quiz attempts that were started but never submitted.
+- *"What's new in Moodle since yesterday?"* — new activities, uploaded slides, forum posts, grades with feedback.
+- *"Summarise the announcements of all my courses."*
+- *"How is SE2 graded and how many points do I have?"*
+- *"Read the slides of lecture 3 in DLfNLP and make me a summary."*
+- *"Download all PDFs of Software Engineering 2 into ~/Uni/SE2/materials."*
+- *"Show me the questions I got wrong in the last Data Analysis quizzes and explain them."*
+- *"Find everything about B-trees in my past courses."*
+
+## Tools
+
+| Tool | What it does |
+|---|---|
+| `status` | Connection check: user, site, current semester, configuration |
+| `list_courses` | Courses by semester (`current`, `past`, `all`, `2025W`…) with LV number, group, final grade |
+| `get_course` | Course page: teachers, groups, every section with text, activities (cmid, dates, files, restrictions) |
+| `get_activity` | Everything about one activity — assignment submission/grade/feedback, quiz attempts, page & book text, forum discussions, choices, BBB recordings, attendance, checkmarks, … |
+| `search` | Search activity names, descriptions, labels, section texts, file names and pages across courses |
+| `get_deadlines` | Open to-dos (dashboard timeline) with status: not attempted / **in progress — not submitted** / submitted |
+| `get_calendar` | All calendar events in a date range (incl. booked appointments) |
+| `get_grades` | Per course: every grade item, %, weight, teacher feedback. Without course: semester overview |
+| `get_activity_status` | Moodle's "Activities" overview: due date, submission status, grade per activity — also for plugins (offline quizzes, checkmarks, …) |
+| `get_quiz_review` | Question-by-question review of quiz attempts: my answer, ✓/✗, correct answer, feedback |
+| `get_announcements` | News-forum posts across current courses, full text |
+| `get_forum` / `get_discussion` | Forums of a course, discussions of a forum, whole threads |
+| `get_notifications` / `get_messages` | Moodle notifications and private/group messages |
+| `list_files` | Every file of a course (resources, folders, pages, books, assignment attachments) |
+| `read_file` | Text of PDF (per page), PPTX (per slide + notes), DOCX, XLSX, ODT, notebooks, HTML, code; images are shown to the model |
+| `download_files` | Incremental sync of a course's files into a folder (skips unchanged, never deletes, videos opt-in) |
+| `get_updates` | What changed since your last check (or a date): activities, files, posts, grades, notifications |
+| `fetch_page` | Any Moodle page as Markdown via the optional web session |
+
+Full reference with parameters and example output: [docs/TOOLS.md](docs/TOOLS.md).
+
+**Prompts** (slash commands in Claude Code / Claude Desktop): `weekly_briefing`, `course_sync <course>`,
+`exam_prep <course> [topic]`, `semester_report [semester]`.
+
+Course arguments are forgiving: `471264`, `051050`, `SE2`, `DLfNLP`, `software engineering 2`, or
+`SE1 2025W` for an older run of a course.
+
+## Install
+
+Requires Python ≥ 3.10. With [uv](https://docs.astral.sh/uv/) (recommended):
 
 ```bash
-pip install -r requirements.txt
-# Run with: PYTHONPATH=src python -m moodle_mcp.main
+uv tool install git+https://github.com/Ilya-Grigoryev/moodle-student-mcp
+# or from a local checkout:  uv tool install /path/to/moodle-student-mcp
 ```
 
-## Configuration (Cursor)
+or with pip / pipx:
 
-The server needs **MOODLE_URL** and **MOODLE_TOKEN** in the environment. In Cursor you set them in the MCP config so the token never lives in a file.
+```bash
+pipx install git+https://github.com/Ilya-Grigoryev/moodle-student-mcp
+```
 
-### Getting your token
+This installs the `moodle-mcp` command. Update later with `uv tool upgrade moodle-student-mcp`
+(or `uv tool install --force <path>` for a local checkout).
 
-You use your existing browser session, no extra software and no “real” hack - Moodle simply puts the token in a redirect URL, and you capture it.
+## Set up your token
 
-1. **Be logged in to Moodle** in your browser (e.g. via Uni Wien SSO).
-2. **Open DevTools** (F12) → **Network** tab, enable **Preserve log**.
-3. **Open the mobile launch URL** in the same browser (same site as your Moodle):  
-   `https://moodle.univie.ac.at/admin/tool/mobile/launch.php?service=moodle_mobile_app&passport=12345`
-4. **Catch the redirect:** Moodle will redirect to a URL that starts with `moodlemobile://token=...`. In the Network tab, find that redirect (or copy the target URL from the address bar if it briefly appears there). The token is in that URL.
-5. **Extract the key:** The value is often Base64‑encoded. Decode it and take the 32‑character token (the core part Moodle uses for the REST API). That’s your **MOODLE_TOKEN**.
+Moodle's mobile app uses a personal *web-service token*. You can get the same token from your browser
+session — no admin rights needed. Run:
 
-So: you “trick” Moodle into issuing a mobile token for your current session and read it from the redirect — no admin rights required.
+```bash
+moodle-mcp setup
+```
 
-### Cursor MCP setup
+It asks for your Moodle URL and prints a link like
+`https://moodle.univie.ac.at/admin/tool/mobile/launch.php?service=moodle_mobile_app&passport=…`.
 
-1. **MOODLE_URL** for Uni Wien: `https://moodle.univie.ac.at/webservice/rest/server.php`.
-2. Open Cursor **Settings → MCP** (or edit `~/.cursor/mcp.json` on macOS).
-3. Add a server entry like this (use your paths and token):
+1. Log in to Moodle in your browser as usual.
+2. Open DevTools (F12) → **Network** tab and tick **Preserve log**.
+3. Open the printed link in the same tab. Moodle redirects to `moodlemobile://token=…` — the browser
+   can't open that, but the request shows up in the Network list (Chrome: the last entry; you may also
+   get an "Open app?" prompt). Copy the full `moodlemobile://token=…` URL (right click → *Copy URL*, or
+   take it from the `Location` response header of the `launch.php` request).
+   Tip: in Firefox the failed redirect usually leaves `moodlemobile://token=…` in the address bar,
+   which is the easiest place to copy it from.
+4. Paste it into `moodle-mcp setup`. It decodes the token, verifies it and saves it to
+   `~/.config/moodle-mcp/config.json` (permissions `600`).
+
+Then check everything: `moodle-mcp check`.
+
+Tokens stay valid until you revoke them (Moodle → Preferences → Security keys) or the site expires them.
+
+## Connect your MCP client
+
+**Claude Code**
+
+```bash
+claude mcp add moodle -s user -- moodle-mcp
+```
+
+(use the absolute path from `which moodle-mcp` if `moodle-mcp` is not on the PATH of your shell).
+
+**Claude Desktop** — `claude_desktop_config.json`:
 
 ```json
-"moodle-student-mcp": {
-  "command": "/path/to/moodle-student-mcp/.venv/bin/python",
-  "args": ["-m", "moodle_mcp.main"],
-  "cwd": "/path/to/moodle-student-mcp",
-  "env": {
-    "PYTHONPATH": "/path/to/moodle-student-mcp/src",
-    "MOODLE_URL": "https://moodle.univie.ac.at/webservice/rest/server.php",
-    "MOODLE_TOKEN": "your_ws_token_here"
-  }
-}
+{ "mcpServers": { "moodle": { "command": "/absolute/path/to/moodle-mcp" } } }
 ```
 
-Use the **full path** to the repo and to the venv's Python. Save and reload MCP (or restart Cursor).
+**Cursor** — `~/.cursor/mcp.json`:
 
-## Running
+```json
+{ "mcpServers": { "moodle": { "command": "/absolute/path/to/moodle-mcp" } } }
+```
 
-With Cursor you don't run the server yourself — Cursor starts it from `mcp.json`. For local testing:
+Instead of the config file you can pass everything as environment variables in the client config
+(`"env": {"MOODLE_URL": "…", "MOODLE_TOKEN": "…"}`).
+
+## Configuration
+
+Environment variables override `~/.config/moodle-mcp/config.json` (keys in brackets).
+
+| Variable (`key`) | Default | Meaning |
+|---|---|---|
+| `MOODLE_URL` (`url`) | — | Site root, e.g. `https://moodle.univie.ac.at` (the old `/webservice/rest/server.php` form works too) |
+| `MOODLE_TOKEN` (`token`) | — | Web-service token |
+| `MOODLE_PRIVATE_TOKEN` (`private_token`) | — | Optional, enables the web session (see below) |
+| `MOODLE_LANG` (`lang`) | `en` | Language for Moodle strings and multi-language content |
+| `MOODLE_TIMEZONE` (`timezone`) | `Europe/Vienna` | Timezone for all dates |
+| `MOODLE_DOWNLOAD_DIR` (`download_dir`) | `~/Downloads/moodle` | Default folder for `download_files` |
+| `MOODLE_EXCLUDE_COURSES` (`exclude_courses`) | — | Courses to leave out of cross-course overviews (ids, LV numbers, names; comma-separated or a JSON list) |
+| `MOODLE_MCP_CONFIG` | `~/.config/moodle-mcp/config.json` | Config file location |
+| `MOODLE_MCP_STATE_DIR` / `MOODLE_MCP_CACHE_DIR` | `~/.local/state/moodle-mcp` / `~/.cache/moodle-mcp` | Snapshots for `get_updates`, file cache |
+
+Courses you hid in Moodle's *My courses* ("Remove from view") are excluded from overviews too. They
+stay reachable by name or id.
+
+## Use it from the shell
+
+Every tool can be called directly — handy for scripts, cron jobs or debugging:
 
 ```bash
-MOODLE_URL=... MOODLE_TOKEN=... PYTHONPATH=src python -m moodle_mcp.main
+moodle-mcp tools                                  # list tools and parameters
+moodle-mcp call get_deadlines days=7
+moodle-mcp call get_course course=SE2 section=3
+moodle-mcp call download_files course=SE2 dest=~/Uni/SE2/materials
+moodle-mcp call search --json '{"query": "b-tree", "scope": "all"}'
 ```
 
-## Project structure
+## Web session (optional, experimental)
 
-| File | Purpose |
-|------|---------|
-| **config.py** | Reads `MOODLE_URL` and `MOODLE_TOKEN` from the environment (e.g. from Cursor's mcp.json). |
-| **client.py** | HTTP client and `call_moodle_api` with Moodle error handling. |
-| **tools.py** | FastMCP server and the four tools. |
-| **main.py** | Entry point (`mcp.run()`). |
+A few plugins have no web-service API at all (group self-registration `grouptool`, appointment
+slots `organizer`, `moodleoverflow` forums). The server still reports their dates, status and calendar
+events. To read their pages too, it can open a normal web session using Moodle's app auto-login, which
+needs the *private token* that Moodle only hands out right after a fresh login:
+
+1. Log out of Moodle and log in again.
+2. Immediately run `moodle-mcp setup` and follow the steps — the pasted URL then contains the private
+   token as well, and `fetch_page` / `get_activity` start showing those pages.
+
+Moodle allows one auto-login every 6 minutes; the session cookie is cached in the state directory.
+
+## Privacy & safety
+
+- **Read-only.** The server never submits, posts, marks as read or changes anything in Moodle. The
+  only write is `download_files` saving files to a folder you choose.
+- Requests go only to your Moodle site. Files are downloaded only from that host.
+- The token lives in your MCP client config or in a `600` config file and is never logged or shown
+  in tool output.
+- Remember that whatever a tool returns is sent to the LLM you are using.
+
+## Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| `Moodle rejected the token (invalidtoken)` | Token expired or revoked — run `moodle-mcp setup` again |
+| `Moodle is not configured` | Run `moodle-mcp setup` or set `MOODLE_URL` + `MOODLE_TOKEN` |
+| `… matches several courses` | Use the course id from `list_courses`, or add a semester: `"SE1 2025W"` |
+| `Review … is not available` | The teacher hides quiz reviews (often until the quiz closes) |
+| Lecture times missing in `get_calendar` | Many universities keep timetables outside Moodle (e.g. u:space) |
+| Another Moodle than univie | Works the same; semester detection falls back to course start dates |
+
+## Development
+
+```bash
+git clone https://github.com/Ilya-Grigoryev/moodle-student-mcp && cd moodle-student-mcp
+uv venv && uv pip install -e ".[dev]"
+.venv/bin/pytest            # unit + tool tests against a fake Moodle
+.venv/bin/ruff check src tests
+.venv/bin/python scripts/live_smoke.py   # optional: every tool against your real Moodle
+```
+
+Layout: `client.py` (async WS client: batching, cache, retries, downloads), `courses.py` (semesters,
+course resolution), `tools/` (one module per tool group), `quizreview.py`, `extract.py`, `html.py`.
+The design and the analysis it is based on are in [docs/SPEC.md](docs/SPEC.md).
 
 ## License
 

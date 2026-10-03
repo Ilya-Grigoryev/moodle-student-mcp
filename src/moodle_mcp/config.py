@@ -18,6 +18,7 @@ ENV_KEYS = {
     "lang": "MOODLE_LANG",
     "timezone": "MOODLE_TIMEZONE",
     "download_dir": "MOODLE_DOWNLOAD_DIR",
+    "exclude_courses": "MOODLE_EXCLUDE_COURSES",
 }
 
 
@@ -71,6 +72,7 @@ class Settings:
     lang: str = "en"
     timezone: str = "Europe/Vienna"
     download_dir: Path = field(default_factory=lambda: Path("~/Downloads/moodle").expanduser())
+    exclude_courses: tuple[str, ...] = ()
     state_dir: Path = field(default_factory=state_dir)
     cache_dir: Path = field(default_factory=cache_dir)
 
@@ -130,4 +132,8 @@ def load_settings() -> Settings:
         kwargs["timezone"] = str(values["timezone"]).strip()
     if values.get("download_dir"):
         kwargs["download_dir"] = Path(str(values["download_dir"])).expanduser()
+    excl = values.get("exclude_courses")
+    if excl:
+        items = excl if isinstance(excl, list) else str(excl).split(",")
+        kwargs["exclude_courses"] = tuple(str(x).strip() for x in items if str(x).strip())
     return Settings(**kwargs)

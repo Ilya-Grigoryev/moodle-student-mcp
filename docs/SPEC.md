@@ -1,6 +1,6 @@
 # Moodle Student MCP v2 — Technical Specification
 
-Status: accepted · Target: `moodle-student-mcp` 2.0.0 · Reference instance: moodle.univie.ac.at (Moodle 5.2)
+Status: implemented in 2.0.0 (see CHANGELOG.md; tool reference in docs/TOOLS.md) · Target: `moodle-student-mcp` 2.0.0 · Reference instance: moodle.univie.ac.at (Moodle 5.2)
 
 ## 1. Goal
 

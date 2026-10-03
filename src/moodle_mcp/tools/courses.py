@@ -64,7 +64,9 @@ async def status() -> str:
         f"- Site: {clean_inline(info.get('sitename'))} — {settings.site_url} (Moodle {info.get('release', '?')})",
         f"- Web-service functions available: {fn_count} · file downloads: {'yes' if info.get('downloadfiles') else 'no'}",
         f"- Courses: {len(courses)} in {len(sems)} semesters ({', '.join(sems[:8])}{'…' if len(sems) > 8 else ''})",
-        f"- Current semester: {current} ({n_current} courses)",
+        f"- Current semester: {current} ({n_current} courses)"
+        + (f" · excluded from overviews: {', '.join(c.title for c in courses if c.excluded and c.semester == current)}"
+           if any(c.excluded and c.semester == current for c in courses) else ""),
         f"- Time: {timeutil.fmt_dt(timeutil.now_ts())} ({settings.timezone}) · language: {settings.lang}",
         f"- Web session for web-only pages: {'configured' if settings.private_token else 'off (optional, needs MOODLE_PRIVATE_TOKEN)'}",
         f"- Config file: {config_path()} · state: {settings.state_dir}",
@@ -80,7 +82,7 @@ async def list_courses(
     query: Annotated[str | None, Field(description="Optional filter on title/shortname/LV number")] = None,
 ) -> str:
     """List enrolled courses grouped by semester with id, LV number, group, final grade and last access."""
-    courses = await app.courses.select(semester)
+    courses = await app.courses.select(semester, include_excluded=True)
     if query:
         fq = fold(query)
         courses = [c for c in courses if fq in fold(f"{c.title} {c.shortname} {c.lv or ''} {' '.join(c.acronyms)}")]
@@ -99,7 +101,11 @@ async def list_courses(
         for c in items:
             grp = ", ".join(g for g in groups.get(c.id, []) if g) or ""
             last = timeutil.fmt_dt(c.lastaccess, time_of_day=False) if c.lastaccess else "never"
-            name = c.title + (" ★" if c.favourite else "") + (" (hidden)" if c.hidden else "")
+            name = c.title + (" ★" if c.favourite else "")
+            if c.hidden:
+                name += " (hidden in Moodle → excluded from overviews)"
+            elif c.excluded:
+                name += " (excluded via exclude_courses)"
             rows.append([c.id, c.lv or "", name, grp, grades.get(c.id, ""), last])
         out.append(fmt.table(["id", "LV", "Course", "My groups", "Grade", "Last access"], rows))
     return fmt.cap("\n\n".join(out))
