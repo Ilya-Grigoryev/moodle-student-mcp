@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Annotated, Any
 
@@ -28,19 +29,35 @@ def _pct(item: dict[str, Any]) -> str:
         return ""
 
 
-def _item_name(item: dict[str, Any]) -> str:
+def _item_name(item: dict[str, Any], categories: dict[int, str] | None = None) -> str:
     itype = item.get("itemtype")
     name = clean_inline(item.get("itemname"))
     if itype == "course":
         return "**Course total**"
     if itype == "category":
-        return f"Σ {name or 'Category total'}"
+        cat = (categories or {}).get(int(item.get("iteminstance") or 0))
+        return f"Σ {name or (cat + ' (total)' if cat else 'Category total')}"
     if item.get("cmid"):
         return f"{name} · cmid {item['cmid']}"
     return name or "(unnamed)"
 
 
-def _grade_rows(items: list[dict[str, Any]], only_graded: bool) -> tuple[list[list[Any]], list[str]]:
+def _category_names(items: list[dict[str, Any]], gradeitems: Any) -> dict[int, str]:
+    """categoryid → name, joined from core_grades_get_gradeitems (item → category name)."""
+    if not isinstance(gradeitems, dict):
+        return {}
+    cat_of_item = {str(g.get("id")): clean_inline(g.get("category")) for g in gradeitems.get("gradeItems") or []}
+    out: dict[int, str] = {}
+    for it in items:
+        name = cat_of_item.get(str(it.get("id")))
+        if name and it.get("categoryid"):
+            out.setdefault(int(it["categoryid"]), name)
+    return out
+
+
+def _grade_rows(
+    items: list[dict[str, Any]], only_graded: bool, categories: dict[int, str] | None = None
+) -> tuple[list[list[Any]], list[str]]:
     rows, feedback = [], []
     show_weight = any(clean_inline(i.get("weightformatted")) not in ("", "-", "0.00 %", "0,00 %") for i in items)
     for it in items:
@@ -52,7 +69,7 @@ def _grade_rows(items: list[dict[str, Any]], only_graded: bool) -> tuple[list[li
         grade = clean_inline(it.get("gradeformatted")) or "–"
         if it.get("gradeishidden"):
             grade = "hidden"
-        row = [_item_name(it), grade, clean_inline(it.get("rangeformatted")), _pct(it)]
+        row = [_item_name(it, categories), grade, clean_inline(it.get("rangeformatted")), _pct(it)]
         if show_weight:
             row.append(clean_inline(it.get("weightformatted")))
         row.append(timeutil.fmt_date(it.get("gradedategraded")) if it.get("gradedategraded") else "")
@@ -81,7 +98,9 @@ async def get_grades(
     course total. Without: one line per course of the semester(s) with total and number of graded items."""
     if course is not None:
         c = await app.courses.resolve(course)
-        items = await _grade_items(c)
+        items, gradeitems = await asyncio.gather(
+            _grade_items(c), app.client.try_call("core_grades_get_gradeitems", courseid=c.id)
+        )
         if not items:
             return f"No grade items visible in {c.label}."
         total = next((i for i in items if i.get("itemtype") == "course"), None)
@@ -94,7 +113,7 @@ async def get_grades(
         graded = sum(1 for i in items if i.get("graderaw") is not None and i.get("itemtype") not in ("course", "category"))
         countable = sum(1 for i in items if i.get("itemtype") not in ("course", "category"))
         out.append(f"{graded} of {countable} items graded.")
-        table_rows, feedback = _grade_rows(items, only_graded)
+        table_rows, feedback = _grade_rows(items, only_graded, _category_names(items, gradeitems))
         out.append(fmt.table(table_rows[0], table_rows[1:]))
         if feedback:
             out.append("\n## Feedback\n" + "\n".join(feedback))

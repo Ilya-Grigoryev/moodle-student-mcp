@@ -241,6 +241,8 @@ class CourseIndex:
         if m:
             sem_filter = normalize_semester(m.group(1))
             q = (q[: m.start()] + q[m.end():]).strip(" ()-,")
+            if not q:
+                raise CourseNotFound(f"{query!r} is only a semester — name the course too, or use list_courses(semester=…).")
         current = await self.current_semester()
         fq = fold(q)
         fq_compact = re.sub(r"[^0-9a-z]", "", fq)

@@ -128,33 +128,48 @@ async def get_updates(
     grades (with feedback) and new notifications — per course, since the last check or a date."""
     state = app.state.load("updates", {}) or {}
     snapshots: dict[str, Any] = state.get("snapshots") or {}
+    last_runs: dict[str, int] = state.get("last_runs") or {}
     now = timeutil.now_ts()
-    use_snapshot = since is None
+    default_since = now - 7 * 86400
+    courses = [await app.courses.resolve(course)] if course is not None else await app.courses.select("current")
+    # Each course has its own "last checked" point, so checking one course never hides news of another.
     if since is None:
-        since_ts = int(state.get("last_run") or now - 7 * 86400)
-        since_label = "your last check" if state.get("last_run") else "7 days ago (first check)"
+        course_since = {c.id: int(last_runs.get(str(c.id)) or default_since) for c in courses}
+        notes_since = int(state.get("notifications_last_run") or default_since)
+        known = [c for c in courses if str(c.id) in last_runs]
+        if known and len(known) == len(courses):
+            since_label = "your last check"
+        elif known:
+            since_label = "your last check (7 days for courses checked for the first time)"
+        else:
+            since_label = "7 days ago (first check)"
     else:
         try:
-            since_ts = int(timeutil.parse_when(since, past=True).timestamp())
+            explicit = int(timeutil.parse_when(since, past=True).timestamp())
         except ValueError as exc:
             raise UserError(str(exc)) from exc
+        course_since = {c.id: explicit for c in courses}
+        notes_since = explicit
         since_label = since
-    courses = [await app.courses.resolve(course)] if course is not None else await app.courses.select("current")
     results = await asyncio.gather(
-        *(_course_updates(c, since_ts, snapshots.get(str(c.id)) if use_snapshot else None) for c in courses)
+        *(_course_updates(c, course_since[c.id], snapshots.get(str(c.id)) if since is None else None) for c in courses)
     )
     userid = await app.client.userid()
     notes = await app.client.try_call("message_popup_get_popup_notifications", useridto=userid, newestfirst=True, limit=30, offset=0, ttl=0)
 
-    out = [f"# What's new since {timeutil.fmt_dt(since_ts)} ({since_label})"]
+    oldest = min(course_since.values(), default=notes_since)
+    out = [f"# What's new since {timeutil.fmt_dt(oldest)} ({since_label})"]
     total = 0
     for c, (lines, snap) in zip(courses, results):
         if lines:
             total += len(lines)
-            out.append(f"## {c.title} [{c.id}]\n" + "\n".join(lines))
+            head = f"## {c.title} [{c.id}]"
+            if course_since[c.id] != oldest:
+                head += f" — since {timeutil.fmt_short(course_since[c.id])}"
+            out.append(head + "\n" + "\n".join(lines))
         snapshots[str(c.id)] = snap
-    if isinstance(notes, dict):
-        fresh = [n for n in notes.get("notifications") or [] if int(n.get("timecreated") or 0) >= since_ts]
+    if isinstance(notes, dict) and course is None:
+        fresh = [n for n in notes.get("notifications") or [] if int(n.get("timecreated") or 0) >= notes_since]
         if fresh:
             nl = [f"- {timeutil.fmt_short(int(n.get('timecreated') or 0))} · {clean_inline(n.get('subject'))}"
                   + ("" if n.get("read") else " · unread") for n in fresh]
@@ -164,7 +179,12 @@ async def get_updates(
         out.append("Nothing new.")
     if remember:
         state["snapshots"] = snapshots
-        state["last_run"] = now
+        for c in courses:
+            last_runs[str(c.id)] = now
+        state["last_runs"] = last_runs
+        if course is None:
+            state["notifications_last_run"] = now
+        state.pop("last_run", None)
         app.state.save("updates", state)
         out.append(f"_Saved this check ({timeutil.fmt_short(now)}); next get_updates() without `since` starts here._")
     return fmt.cap("\n\n".join(out), hint="pass `course` to focus on one course")

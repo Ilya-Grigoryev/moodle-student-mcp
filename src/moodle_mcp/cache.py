@@ -39,6 +39,7 @@ class TTLCache:
 
     def clear(self) -> None:
         self._data.clear()
+        self._inflight.clear()
 
     async def get_or_fetch(self, key: Hashable, ttl: float, fetch: Callable[[], Awaitable[Any]]) -> Any:
         hit, value = self.get(key)

@@ -248,7 +248,8 @@ async def search(
     limit: Annotated[int, Field(ge=1, le=200, description="Max results")] = 40,
 ) -> str:
     """Search section names/summaries, activity names and descriptions, labels, file names and page
-    texts across courses. Returns matches grouped by course with cmids and snippets."""
+    texts across courses (not the contents of files — use read_file for that). Returns matches
+    grouped by course with cmids and snippets."""
     words = [w for w in re.findall(r"\w+", fold(query)) if w]
     if not words:
         raise UserError("Empty query.")

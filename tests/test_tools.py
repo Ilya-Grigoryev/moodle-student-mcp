@@ -173,3 +173,25 @@ async def test_course_typos_and_unknown(fake: FakeMoodle):
     assert (await app.courses.resolve("Software Enginering 2")).id == 101  # fuzzy
     with pytest.raises(ToolError, match="No enrolled course matches"):
         await mcp.call_tool("get_course", {"course": "Quantum Basket Weaving"})
+
+
+async def test_updates_last_check_is_per_course(fake: FakeMoodle):
+    setup_courses(fake)
+    contents_for(fake, [QUIZ_MOD, RES_MOD])
+    fake.on("core_course_check_updates", {"instances": [], "warnings": []})
+    fake.on("gradereport_user_get_grade_items", {"usergrades": [{"gradeitems": []}]})
+    fake.on("mod_forum_get_forums_by_courses", [])
+    fake.on("message_popup_get_popup_notifications", {"notifications": [], "unreadcount": 0})
+    await call("get_updates", course="SE2")  # only SE2 is now "seen"
+    state = app.state.load("updates")
+    assert set(state["last_runs"]) == {"101"} and "notifications_last_run" not in state
+    out = await call("get_updates")  # DLfNLP still uses the 7-day default
+    assert "7 days for courses checked for the first time" in out
+    state = app.state.load("updates")
+    assert set(state["last_runs"]) == {"101", "102"} and "notifications_last_run" in state
+
+
+async def test_semester_only_reference(fake: FakeMoodle):
+    setup_courses(fake)
+    with pytest.raises(ToolError, match="only a semester"):
+        await mcp.call_tool("get_course", {"course": PREV})

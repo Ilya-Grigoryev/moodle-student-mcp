@@ -52,7 +52,7 @@ Claude: (get_deadlines) Mon 05.10. 14:00 — SE2 Worksheet 1 closes, not attempt
 | `get_updates` | What changed since your last check (or a date): activities, files, posts, grades, notifications |
 | `fetch_page` | Any Moodle page as Markdown via the optional web session |
 
-Full reference with parameters and example output: [docs/TOOLS.md](docs/TOOLS.md).
+Full reference with parameters and example output: [docs/TOOLS.md](docs/TOOLS.md). Everyday recipes (morning check, folder sync, exam prep, a sync skill for Claude Code): [docs/WORKFLOWS.md](docs/WORKFLOWS.md).
 
 **Prompts** (slash commands in Claude Code / Claude Desktop): `weekly_briefing`, `course_sync <course>`,
 `exam_prep <course> [topic]`, `semester_report [semester]`.

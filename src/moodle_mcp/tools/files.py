@@ -246,7 +246,7 @@ def _plan_paths(files: list[data.FileRef], layout: str, sanitize_names: bool) ->
 @moodle_tool(title="Download course files", read_only=False, idempotent=True)
 async def download_files(
     course: CourseArg,
-    dest: Annotated[str | None, Field(description="Target folder (created if missing). Default: <download_dir>/<semester> <course>")] = None,
+    dest: Annotated[str | None, Field(description="Target folder, absolute or relative to your home directory (created if missing). Default: <download_dir>/<semester> <course>")] = None,
     section: Annotated[str | int | None, Field(description="Only this section (number or name part)")] = None,
     activity: Annotated[str | int | None, Field(description="Only files of this activity (cmid)")] = None,
     include_videos: Annotated[bool, Field(description="Also download videos (can be large)")] = False,
