@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import random
 import re
+import tempfile
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
@@ -91,6 +93,26 @@ def _raise_for_payload(data: Any, function: str) -> None:
         if code in AUTH_ERROR_CODES:
             raise MoodleAuthError(msg, code, function)
         raise MoodleError(msg, code, function)
+
+
+_ERROR_KEYS = {"error", "errorcode", "exception", "message", "debuginfo", "stacktrace", "reproductionlink", "link", "moreinfourl"}
+
+
+def _file_error(body: bytes) -> MoodleError | None:
+    """Moodle reports pluginfile errors as a small JSON object; a real JSON file is left alone."""
+    if len(body) > 5000:
+        return None
+    try:
+        data = json.loads(body)
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or "errorcode" not in data or not set(data) <= _ERROR_KEYS:
+        return None
+    code = data.get("errorcode")
+    msg = str(data.get("error") or data.get("message") or code)
+    if code in AUTH_ERROR_CODES:
+        return MoodleAuthError(msg, code, "download")
+    return MoodleError(msg, code, "download")
 
 
 class MoodleClient:
@@ -214,7 +236,7 @@ class MoodleClient:
             except MoodleAuthError:
                 raise
             except MoodleError as exc:
-                if exc.function == BATCH_FUNCTION and self._batch_supported is None:
+                if exc.function == BATCH_FUNCTION and self._batch_supported is None and exc.errorcode != "network":
                     log.info("Batch endpoint unavailable (%s); falling back to parallel calls", exc)
                     self._batch_supported = False
                 else:
@@ -285,18 +307,36 @@ class MoodleClient:
         return int((await self.site_info())["userid"])
 
     # ------------------------------------------------------------------ files
+    def _site_parts(self) -> tuple[str, str, int]:
+        site = urlsplit(self.settings.site_url)
+        default = 443 if site.scheme == "https" else 80
+        return site.scheme, (site.hostname or "").lower(), site.port or default
+
     def is_site_url(self, url: str) -> bool:
+        """Same host as the Moodle site (and the same port, if one is given explicitly)."""
         try:
-            host = urlsplit(url).hostname or ""
+            parts = urlsplit(url)
+            port = parts.port
         except ValueError:
             return False
-        return host.lower() == self.settings.host
+        if parts.scheme not in ("http", "https"):
+            return False
+        _, host, site_port = self._site_parts()
+        if (parts.hostname or "").lower() != host:
+            return False
+        return port is None or port == site_port
+
+    def to_site_url(self, url: str) -> str:
+        """Rebuild a same-host URL with the site's own scheme and port (never send credentials over http)."""
+        if not self.is_site_url(url):
+            raise MoodleError(f"Refusing to contact a non-Moodle host: {url}", "badhost")
+        site = urlsplit(self.settings.site_url)
+        parts = urlsplit(url)
+        return urlunsplit((site.scheme, site.netloc, parts.path, parts.query, ""))
 
     def authed_file_url(self, url: str) -> str:
         """Turn a Moodle file URL into a token-authenticated download URL."""
-        if not self.is_site_url(url):
-            raise MoodleError(f"Refusing to download from a non-Moodle host: {url}", "badhost")
-        parts = urlsplit(url)
+        parts = urlsplit(self.to_site_url(url))
         path = parts.path
         if "/webservice/pluginfile.php" not in path:
             path = path.replace("/pluginfile.php", "/webservice/pluginfile.php", 1)
@@ -321,47 +361,38 @@ class MoodleClient:
         assert self._sem is not None
         target = self.authed_file_url(url)
         dest.parent.mkdir(parents=True, exist_ok=True)
-        tmp = dest.with_name(dest.name + ".part")
+        fd, tmp_name = tempfile.mkstemp(dir=dest.parent, prefix=f".{dest.name[:60]}.", suffix=".part")
+        tmp = Path(tmp_name)
         written = 0
+        too_large = MoodleError(
+            f"File is larger than the limit of {(max_bytes or 0) // (1024 * 1024)} MB", "toolarge", "download"
+        )
         try:
-            async with self._sem, http.stream("GET", target, timeout=httpx.Timeout(300.0, connect=15.0)) as resp:
-                ctype = resp.headers.get("content-type", "")
-                if resp.status_code >= 400 or ctype.startswith("application/json"):
-                    body = (await resp.aread())[:2000]
-                    try:
-                        data = json.loads(body)
-                    except ValueError:
-                        data = None
-                    if isinstance(data, dict) and ("errorcode" in data or "error" in data):
-                        code = data.get("errorcode")
-                        msg = str(data.get("error") or data.get("message"))
-                        if code in AUTH_ERROR_CODES:
-                            raise MoodleAuthError(msg, code, "download")
-                        raise MoodleError(msg, code, "download")
-                    if resp.status_code >= 400:
-                        raise MoodleError(f"Download failed with HTTP {resp.status_code}", str(resp.status_code), "download")
-                    # A genuine JSON file: fall through and save what we already read.
-                    with open(tmp, "wb") as fh:
-                        fh.write(body)
+            with os.fdopen(fd, "wb") as fh:
+                async with self._sem, http.stream("GET", target, timeout=httpx.Timeout(300.0, connect=15.0)) as resp:
+                    ctype = resp.headers.get("content-type", "")
+                    if resp.status_code >= 400 or ctype.startswith("application/json"):
+                        body = await resp.aread()
+                        error = _file_error(body)
+                        if error is not None:
+                            raise error
+                        if resp.status_code >= 400:
+                            raise MoodleError(f"Download failed with HTTP {resp.status_code}", str(resp.status_code), "download")
+                        if max_bytes is not None and len(body) > max_bytes:
+                            raise too_large
+                        fh.write(body)  # a genuine JSON file
                         written = len(body)
-                        async for chunk in resp.aiter_bytes():
-                            fh.write(chunk)
-                            written += len(chunk)
-                else:
-                    with open(tmp, "wb") as fh:
+                    else:
                         async for chunk in resp.aiter_bytes():
                             written += len(chunk)
                             if max_bytes is not None and written > max_bytes:
-                                raise MoodleError(
-                                    f"File is larger than the limit of {max_bytes // (1024 * 1024)} MB", "toolarge", "download"
-                                )
+                                raise too_large
                             fh.write(chunk)
             tmp.replace(dest)
         except httpx.HTTPError as exc:
-            raise MoodleError(f"Download failed: {type(exc).__name__}: {exc}", "network", "download") from exc
+            raise MoodleError(f"Download failed: {type(exc).__name__}", "network", "download") from exc
         finally:
-            if tmp.exists():
-                tmp.unlink(missing_ok=True)
+            tmp.unlink(missing_ok=True)
         return written
 
     async def get_text(self, url: str) -> str:
@@ -372,4 +403,7 @@ class MoodleClient:
             resp = await http.get(self.authed_file_url(url))
         if resp.status_code >= 400:
             raise MoodleError(f"HTTP {resp.status_code} while fetching {self.public_url(url)}", str(resp.status_code), "download")
+        error = _file_error(resp.content) if resp.headers.get("content-type", "").startswith("application/json") else None
+        if error is not None:
+            raise error
         return resp.text

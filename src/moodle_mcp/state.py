@@ -28,7 +28,9 @@ class State:
         self.dir.mkdir(parents=True, exist_ok=True)
         p = self.path(name)
         tmp = p.with_suffix(".tmp")
-        tmp.write_text(json.dumps(value, ensure_ascii=False, indent=1), encoding="utf-8")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600 if private else 0o644)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(value, ensure_ascii=False, indent=1))
         if private:
             os.chmod(tmp, 0o600)
         tmp.replace(p)

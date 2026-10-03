@@ -79,13 +79,18 @@ def _prune_cache() -> None:
         p.unlink(missing_ok=True)
 
 
+_fetch_locks: dict[str, asyncio.Lock] = {}
+
+
 async def fetch_cached(url: str, filename: str, mtime: int | None) -> Path:
     key = hashlib.sha1(f"{MoodleClient.public_url(url)}|{mtime or ''}".encode()).hexdigest()[:20]
     safe = re.sub(r"[^\w.\-]+", "_", filename)[:120] or "file"
     path = _cache_root() / key / safe
-    if path.exists() and (mtime or time.time() - path.stat().st_mtime < 6 * 3600):
-        return path
-    await app.client.download(url, path, max_bytes=MAX_READ_BYTES)
+    lock = _fetch_locks.setdefault(str(path), asyncio.Lock())
+    async with lock:  # parallel reads of the same file download it once
+        if path.exists() and (mtime or time.time() - path.stat().st_mtime < 6 * 3600):
+            return path
+        await app.client.download(url, path, max_bytes=MAX_READ_BYTES)
     _prune_cache()
     return path
 
@@ -144,6 +149,7 @@ async def read_file(
     if url is not None:
         if not app.client.is_site_url(url):
             raise UserError("Only files hosted on your Moodle site can be read.")
+        url = app.client.to_site_url(url)
         fname = filename or _filename_from_url(url)
         source = MoodleClient.public_url(url)
     else:

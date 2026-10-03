@@ -11,7 +11,7 @@ from typing import Any
 class TTLCache:
     def __init__(self, max_entries: int = 2000) -> None:
         self._data: dict[Hashable, tuple[float, Any]] = {}
-        self._inflight: dict[Hashable, asyncio.Future[Any]] = {}
+        self._inflight: dict[Hashable, asyncio.Future[Any]] = {}  # key → running fetch task
         self._max = max_entries
 
     def get(self, key: Hashable) -> tuple[bool, Any]:
@@ -45,23 +45,26 @@ class TTLCache:
         hit, value = self.get(key)
         if hit:
             return value
-        pending = self._inflight.get(key)
-        if pending is not None:
-            return await asyncio.shield(pending)
-        loop = asyncio.get_running_loop()
-        future: asyncio.Future[Any] = loop.create_future()
-        self._inflight[key] = future
+        task = self._inflight.get(key)
+        if task is None or task.done():
+            # The fetch runs as its own task: cancelling one caller never cancels the others.
+            task = asyncio.ensure_future(self._run(key, ttl, fetch))
+            task.add_done_callback(_consume_exception)
+            self._inflight[key] = task
+        return await asyncio.shield(task)
+
+    async def _run(self, key: Hashable, ttl: float, fetch: Callable[[], Awaitable[Any]]) -> Any:
         try:
             value = await fetch()
-        except BaseException as exc:
-            if not future.done():
-                future.set_exception(exc)
-                future.exception()  # mark retrieved: waiters re-raise it themselves
-            raise
-        else:
             self.set(key, value, ttl)
-            if not future.done():
-                future.set_result(value)
             return value
         finally:
-            self._inflight.pop(key, None)
+            current = asyncio.current_task()
+            if self._inflight.get(key) is current:
+                self._inflight.pop(key, None)
+
+
+def _consume_exception(task: asyncio.Future[Any]) -> None:
+    """Mark the exception as retrieved so an abandoned fetch does not log 'never retrieved'."""
+    if not task.cancelled():
+        task.exception()

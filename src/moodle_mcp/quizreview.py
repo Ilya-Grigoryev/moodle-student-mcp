@@ -198,7 +198,12 @@ def is_wrong(q: dict[str, Any]) -> bool:
     state = (q.get("state") or "").lower()
     if state in ("gradedwrong", "gradedpartial", "gaveup", "mangrwrong", "mangrpartial"):
         return True
+    if state in ("gradedright", "mangrright"):
+        return False
+    mark = q.get("mark")
+    if mark in (None, ""):  # marks hidden by the review options and no usable state
+        return False
     try:
-        return float(str(q.get("mark") or "0").replace(",", ".")) < float(q.get("maxmark") or 0)
+        return float(str(mark).replace(",", ".")) < float(q.get("maxmark") or 0)
     except ValueError:
         return False

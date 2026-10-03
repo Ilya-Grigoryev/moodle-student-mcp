@@ -53,7 +53,8 @@ def parse_ranges(spec: str | None, total: int) -> list[int]:
         else:
             a = int(m.group(1) or 1)
             b = int(m.group(2) or total)
-        pages.extend(p for p in range(a, b + 1) if 1 <= p <= total and p not in pages)
+        a, b = max(a, 1), min(b, total)
+        pages.extend(p for p in range(a, b + 1) if p not in pages)
     return pages
 
 
@@ -216,12 +217,16 @@ def _zip_listing(data: bytes) -> Extracted:
 
 
 def _decode(data: bytes) -> str:
-    for enc in ("utf-8", "utf-16", "cp1252", "latin-1"):
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return data.decode("utf-16", "replace")
+    if data.startswith(b"\xef\xbb\xbf"):
+        return data[3:].decode("utf-8", "replace")
+    for enc in ("utf-8", "cp1252"):
         try:
             return data.decode(enc)
         except UnicodeDecodeError:
             continue
-    return data.decode("utf-8", "replace")
+    return data.decode("latin-1")
 
 
 def extract(path: Path, filename: str, mimetype: str = "", pages: str | None = None) -> Extracted:

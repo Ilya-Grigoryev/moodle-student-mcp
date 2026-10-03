@@ -8,6 +8,7 @@ from pydantic import Field
 
 from ..app import app
 from ..toolkit import UserError, moodle_tool
+from ..web import is_safe_page_url
 
 
 @moodle_tool(title="Read a Moodle web page")
@@ -24,4 +25,6 @@ async def fetch_page(
         )
     if not app.client.is_site_url(url):
         raise UserError("Only pages of your Moodle site can be fetched.")
+    if not is_safe_page_url(url):
+        raise UserError("This URL performs an action in Moodle (sesskey/logout/action=…); this server only reads pages.")
     return await app.web.fetch_markdown(url, max_chars=max_chars)

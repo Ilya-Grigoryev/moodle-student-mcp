@@ -43,7 +43,7 @@ mcp = MCPServer(
 
 F = TypeVar("F", bound=Callable[..., Awaitable[Any]])
 
-EXPECTED_ERRORS = (ConfigError, MoodleError, CourseNotFound, AmbiguousCourse, ValueError, LookupError)
+EXPECTED_ERRORS = (ConfigError, MoodleError, CourseNotFound, AmbiguousCourse)
 
 
 class UserError(Exception):
@@ -60,9 +60,16 @@ def moodle_tool(*, title: str, read_only: bool = True, idempotent: bool = True) 
                 raise
             except (UserError, *EXPECTED_ERRORS) as exc:
                 raise ToolError(str(exc)) from exc
+            except ValueError as exc:  # raised deliberately for bad arguments (dates, ranges, semesters)
+                log.info("Tool %s: %s", fn.__name__, exc)
+                raise ToolError(str(exc)) from exc
             except Exception as exc:
+                # A bug or an unexpected Moodle response: log the traceback, give the model a short hint.
                 log.exception("Tool %s crashed", fn.__name__)
-                raise ToolError(f"Internal error ({type(exc).__name__}): {exc}") from exc
+                raise ToolError(
+                    f"Internal error ({type(exc).__name__}: {str(exc)[:200]}). This is a bug in moodle-mcp — "
+                    "try a narrower request or another tool."
+                ) from exc
 
         mcp.add_tool(
             wrapper,

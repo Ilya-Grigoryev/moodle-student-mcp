@@ -13,7 +13,7 @@ from markdownify import MarkdownConverter
 warnings.filterwarnings("ignore", category=MarkupResemblesLocatorWarning)
 
 _MLANG_RE = re.compile(r"\{mlang\s+([^}]+)\}(.*?)\{mlang\}", re.S | re.I)
-_SPAN_MLANG_RE = re.compile(r'<span[^>]*class="multilang"[^>]*lang="([^"]+)"[^>]*>(.*?)</span>', re.S | re.I)
+_SPAN_MLANG_RE = re.compile(r'<span(?=[^>]*class="multilang")[^>]*?\blang="([^"]+)"[^>]*>(.*?)</span>', re.S | re.I)
 _HIDDEN_CLASSES = {"accesshide", "sr-only", "visually-hidden", "hidden"}
 _preferred_lang = "en"
 
@@ -77,7 +77,7 @@ class _Converter(MarkdownConverter):
         text = (text or "").strip()
         if not href or href.startswith("#") or href.startswith("javascript:"):
             return text
-        href = re.sub(r"([?&])token=[^&]+&?", r"\1", href).rstrip("?&")
+        href = re.sub(r"([?&])(?:token|sesskey)=[^&]+&?", r"\1", href).rstrip("?&")
         href = href.replace("/webservice/pluginfile.php", "/pluginfile.php")
         if not text:
             return f"<{href}>"

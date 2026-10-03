@@ -49,6 +49,7 @@ class FakeMoodle:
         self.handlers: dict[str, Callable[[dict[str, Any]], Any]] = {}
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.files: dict[str, bytes] = {}
+        self.file_types: dict[str, str] = {}
         self.batch_supported = True
         self.on(
             "core_webservice_get_site_info",
@@ -83,7 +84,8 @@ class FakeMoodle:
         if request.url.path.startswith("/webservice/pluginfile.php"):
             key = request.url.path.replace("/webservice/pluginfile.php", "")
             if key in self.files:
-                return httpx.Response(200, content=self.files[key], headers={"content-type": "application/octet-stream"})
+                ctype = self.file_types.get(key, "application/octet-stream")
+                return httpx.Response(200, content=self.files[key], headers={"content-type": ctype})
             return httpx.Response(404, json={"error": "not found", "errorcode": "filenotfound"})
         form = dict(parse_qsl(request.content.decode()))
         function = form.pop("wsfunction")

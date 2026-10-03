@@ -21,6 +21,7 @@ _AREA_LABELS = {
     "chapters": "chapters", "answers": "answers", "attempts": "attempts", "recordings": "recordings",
 }
 _IGNORED_AREAS = {"completion", "outcomes"}
+_STATE_LOCK = asyncio.Lock()
 
 
 def _snapshot(mods: list[data.Mod]) -> dict[str, Any]:
@@ -151,9 +152,13 @@ async def get_updates(
         course_since = {c.id: explicit for c in courses}
         notes_since = explicit
         since_label = since
-    results = await asyncio.gather(
-        *(_course_updates(c, course_since[c.id], snapshots.get(str(c.id)) if since is None else None) for c in courses)
-    )
+    async def safe(c: Course) -> tuple[list[str], dict[str, Any] | None]:
+        try:
+            return await _course_updates(c, course_since[c.id], snapshots.get(str(c.id)) if since is None else None)
+        except MoodleError as exc:  # one inaccessible course must not break the whole overview
+            return [f"- (could not check this course: {exc.message})"], None
+
+    results = await asyncio.gather(*(safe(c) for c in courses))
     userid = await app.client.userid()
     notes = await app.client.try_call("message_popup_get_popup_notifications", useridto=userid, newestfirst=True, limit=30, offset=0, ttl=0)
 
@@ -167,7 +172,8 @@ async def get_updates(
             if course_since[c.id] != oldest:
                 head += f" — since {timeutil.fmt_short(course_since[c.id])}"
             out.append(head + "\n" + "\n".join(lines))
-        snapshots[str(c.id)] = snap
+        if snap is not None:
+            snapshots[str(c.id)] = snap
     if isinstance(notes, dict) and course is None:
         fresh = [n for n in notes.get("notifications") or [] if int(n.get("timecreated") or 0) >= notes_since]
         if fresh:
@@ -178,13 +184,14 @@ async def get_updates(
     if total == 0:
         out.append("Nothing new.")
     if remember:
-        state["snapshots"] = snapshots
-        for c in courses:
-            last_runs[str(c.id)] = now
-        state["last_runs"] = last_runs
-        if course is None:
-            state["notifications_last_run"] = now
-        state.pop("last_run", None)
-        app.state.save("updates", state)
+        checked = {str(c.id): snap for c, (_, snap) in zip(courses, results) if snap is not None}
+        async with _STATE_LOCK:  # re-read and merge: parallel calls for other courses must not be lost
+            fresh = app.state.load("updates", {}) or {}
+            fresh.setdefault("snapshots", {}).update(checked)
+            fresh.setdefault("last_runs", {}).update({cid: now for cid in checked})
+            if course is None:
+                fresh["notifications_last_run"] = now
+            fresh.pop("last_run", None)
+            app.state.save("updates", fresh)
         out.append(f"_Saved this check ({timeutil.fmt_short(now)}); next get_updates() without `since` starts here._")
     return fmt.cap("\n\n".join(out), hint="pass `course` to focus on one course")

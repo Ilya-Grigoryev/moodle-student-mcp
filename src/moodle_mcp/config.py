@@ -82,7 +82,8 @@ class Settings:
 
     @property
     def host(self) -> str:
-        return re.sub(r"^https?://", "", self.site_url).split("/", 1)[0].lower()
+        """Host name without port."""
+        return re.sub(r"^https?://", "", self.site_url).split("/", 1)[0].split(":", 1)[0].lower()
 
 
 def read_config_file(path: Path | None = None) -> dict[str, Any]:
@@ -104,7 +105,9 @@ def write_config_file(values: dict[str, Any], path: Path | None = None) -> Path:
     existing = read_config_file(path) if path.exists() else {}
     existing.update({k: v for k, v in values.items() if v is not None})
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(existing, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)  # never readable by others, not even briefly
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps(existing, indent=2, ensure_ascii=False) + "\n")
     os.chmod(tmp, 0o600)
     tmp.replace(path)
     return path

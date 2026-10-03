@@ -30,6 +30,15 @@ class WebSessionError(MoodleError):
     pass
 
 
+_UNSAFE_PATHS = ("/login/logout.php", "/course/togglecompletion.php", "/mod/forum/subscribe.php", "/user/action_redir.php")
+
+
+def is_safe_page_url(url: str) -> bool:
+    """GET requests that carry a sesskey (or hit known action endpoints) can change data — never follow them."""
+    low = url.lower()
+    return "sesskey" not in low and not any(p in low for p in _UNSAFE_PATHS) and "action=" not in low.split("#")[0]
+
+
 class WebSession:
     def __init__(self, client: MoodleClient, state: State) -> None:
         self.client = client
@@ -126,6 +135,9 @@ class WebSession:
         """Returns (final_url, html) of a Moodle page fetched with the web session."""
         if not self.client.is_site_url(url):
             raise WebSessionError("Only pages of your Moodle site can be fetched.", "badhost")
+        if not is_safe_page_url(url):
+            raise WebSessionError("Refusing to open an action URL (sesskey/logout) — this server only reads.", "unsafeurl")
+        url = self.client.to_site_url(url)  # always the site's scheme: cookies never go over http
         await self.ensure()
         http = self._ensure_http()
         resp = await http.get(url)
