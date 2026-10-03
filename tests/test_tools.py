@@ -195,3 +195,38 @@ async def test_semester_only_reference(fake: FakeMoodle):
     setup_courses(fake)
     with pytest.raises(ToolError, match="only a semester"):
         await mcp.call_tool("get_course", {"course": PREV})
+
+
+async def test_download_never_overwrites_local_changes(fake: FakeMoodle, tmp_path: Path):
+    setup_courses(fake)
+    contents_for(fake, [QUIZ_MOD, RES_MOD])
+    fake.on("mod_assign_get_assignments", {"courses": []})
+    fake.files["/9/mod_resource/content/1/notes.txt"] = b"hello notes"
+    dest = tmp_path / "dl"
+    await call("download_files", course="SE2", dest=str(dest))
+    (dest / "notes.txt").write_bytes(b"my own annotated notes")  # user edits the file
+    out = await call("download_files", course="SE2", dest=str(dest))
+    assert "Kept 1 locally modified" in out
+    RES_MOD["contents"][0]["timemodified"] = NOW  # and the teacher uploads a new version
+    app.client.cache.clear()
+    try:
+        out = await call("download_files", course="SE2", dest=str(dest))
+    finally:
+        RES_MOD["contents"][0]["timemodified"] = NOW - DAY
+    assert (dest / "notes.txt").read_bytes() == b"my own annotated notes"
+    side = [p for p in dest.iterdir() if p.name.startswith("notes (moodle ")]
+    assert len(side) == 1 and side[0].read_bytes() == b"hello notes"
+    assert "saved as notes (moodle" in out
+
+
+async def test_download_preexisting_different_file_is_kept(fake: FakeMoodle, tmp_path: Path):
+    setup_courses(fake)
+    contents_for(fake, [QUIZ_MOD, RES_MOD])
+    fake.on("mod_assign_get_assignments", {"courses": []})
+    fake.files["/9/mod_resource/content/1/notes.txt"] = b"hello notes"
+    dest = tmp_path / "dl"
+    dest.mkdir()
+    (dest / "notes.txt").write_bytes(b"something else entirely")
+    await call("download_files", course="SE2", dest=str(dest))
+    assert (dest / "notes.txt").read_bytes() == b"something else entirely"
+    assert any(p.name.startswith("notes (moodle ") for p in dest.iterdir())

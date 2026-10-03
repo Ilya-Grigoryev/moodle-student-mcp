@@ -214,6 +214,14 @@ def _default_dest(c: Course) -> Path:
     return app.settings.download_dir / _sanitize(f"{c.semester or ''} {c.title}".strip(), spaces=False)
 
 
+def _inside(root: Path, path: Path) -> bool:
+    try:
+        path.resolve().relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
 def _plan_paths(files: list[data.FileRef], layout: str, sanitize_names: bool) -> dict[str, str]:
     """Map file URL → relative local path, resolving name collisions deterministically."""
     plan: dict[str, str] = {}
@@ -277,37 +285,49 @@ async def download_files(
         man = {}
     entries: dict[str, Any] = man.get("files") or {}
     plan = _plan_paths(files, layout, sanitize_names)
+    root = target.resolve()
     # Keep paths of files we downloaded before, so renaming rules never move existing files.
     for f in files:
         key = MoodleClient.public_url(f.url)
-        if key in entries and entries[key].get("path"):
-            plan[f.url] = entries[key]["path"]
+        old_path = (entries.get(key) or {}).get("path")
+        if old_path and _inside(root, target / old_path):
+            plan[f.url] = old_path
 
-    new, updated, unchanged, adopted = [], [], [], []
+    new, updated, unchanged, adopted, kept, side = [], [], [], [], [], []
     for f in files:
         key = MoodleClient.public_url(f.url)
-        rel = plan[f.url]
-        local = target / rel
+        local = target / plan[f.url]
         entry = entries.get(key)
-        if local.exists():
-            same_size = local.stat().st_size == f.size
-            if entry and entry.get("mtime") == f.mtime and same_size:
-                unchanged.append(f)
-                continue
-            if not entry and same_size:
-                adopted.append(f)  # downloaded earlier by hand — just start tracking it
-                continue
-            updated.append(f)
-        else:
+        if not local.exists():
             new.append(f)
-    todo = new + updated
+            continue
+        size = local.stat().st_size
+        if entry:
+            locally_modified = size != entry.get("size")
+            moodle_changed = entry.get("mtime") != f.mtime
+            if not moodle_changed:
+                (kept if locally_modified else unchanged).append(f)
+            elif not locally_modified:
+                updated.append(f)
+            else:
+                side.append(f)  # both changed: keep the user's file, save Moodle's version next to it
+        elif size == f.size:
+            adopted.append(f)  # same name and size — downloaded earlier by hand, just start tracking it
+        else:
+            side.append(f)  # a different local file with the same name: never overwrite it
+    for f in side:
+        stem, dot, ext = plan[f.url].rpartition(".")
+        stamp = timeutil.to_dt(f.mtime or timeutil.now_ts()).strftime("%Y-%m-%d")
+        plan[f.url] = f"{stem} (moodle {stamp}).{ext}" if dot else f"{plan[f.url]} (moodle {stamp})"
+    todo = new + updated + side
     total = sum(f.size for f in todo)
     lines = [f"# Download — {c.label} → {target}"]
     if dry_run:
-        lines.append(f"DRY RUN: would download {len(new)} new + {len(updated)} changed files ({fmt.size(total)}); "
-                     f"{len(unchanged) + len(adopted)} already present.")
+        lines.append(f"DRY RUN: would download {len(new)} new + {len(updated) + len(side)} changed files ({fmt.size(total)}); "
+                     f"{len(unchanged) + len(adopted) + len(kept)} already present.")
         for f in todo:
-            lines.append(f"- {'new' if f in new else 'changed'}: {plan[f.url]} ({fmt.size(f.size)})")
+            kind = "new" if f in new else "changed" if f in updated else "changed, saved next to your modified copy"
+            lines.append(f"- {kind}: {plan[f.url]} ({fmt.size(f.size)})")
     else:
         failed: list[tuple[data.FileRef, str]] = []
         sem = asyncio.Semaphore(4)
@@ -337,12 +357,16 @@ async def download_files(
             manifest_path.write_text(json.dumps(man, ensure_ascii=False, indent=1), encoding="utf-8")
         ok_new = [f for f in new if f.url not in failed_urls]
         ok_upd = [f for f in updated if f.url not in failed_urls]
-        lines.append(f"Downloaded {len(ok_new)} new + {len(ok_upd)} updated files "
-                     f"({fmt.size(sum(f.size for f in ok_new + ok_upd))}); {len(unchanged) + len(adopted)} unchanged.")
+        ok_side = [f for f in side if f.url not in failed_urls]
+        lines.append(f"Downloaded {len(ok_new)} new + {len(ok_upd) + len(ok_side)} updated files "
+                     f"({fmt.size(sum(f.size for f in ok_new + ok_upd + ok_side))}); "
+                     f"{len(unchanged) + len(adopted) + len(kept)} unchanged.")
         for f in ok_new:
             lines.append(f"- new: {plan[f.url]} ({fmt.size(f.size)})")
         for f in ok_upd:
             lines.append(f"- updated: {plan[f.url]} ({fmt.size(f.size)})")
+        for f in ok_side:
+            lines.append(f"- updated in Moodle, saved as {plan[f.url]} — your local file with the original name was changed and is kept")
         for f, err in failed:
             lines.append(f"- FAILED: {plan[f.url]} — {err}")
     if skipped_filter:
@@ -354,6 +378,8 @@ async def download_files(
         if rest:
             bits.append(f"{rest} files filtered by extension")
         lines.append("Skipped: " + ", ".join(bits))
+    if kept:
+        lines.append(f"Kept {len(kept)} locally modified file(s) untouched: " + ", ".join(plan[f.url] for f in kept[:10]))
     if not files:
         lines.append("No files matched.")
     return fmt.cap("\n".join(lines))
