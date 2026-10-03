@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from . import tools  # noqa: F401  (registers tools)
+from . import prompts, tools  # noqa: F401  (registers tools and prompts)
 from .toolkit import mcp
 
 __all__ = ["mcp"]

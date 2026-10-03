@@ -9,7 +9,7 @@ import random
 import re
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 import httpx
 
@@ -305,7 +305,7 @@ class MoodleClient:
             path = re.sub(r"/tokenpluginfile\.php/[^/]+/", "/webservice/pluginfile.php/", path)
         query = [(k, v) for k, v in parse_qsl(parts.query) if k != "token"]
         query.append(("token", self.settings.token))
-        return urlunsplit((parts.scheme, parts.netloc, path, urlencode(query), ""))
+        return urlunsplit((parts.scheme, parts.netloc, quote(path, safe="/%:@!$&'()*+,;=~"), urlencode(query), ""))
 
     @staticmethod
     def public_url(url: str) -> str:
@@ -313,7 +313,7 @@ class MoodleClient:
         parts = urlsplit(url)
         path = parts.path.replace("/webservice/pluginfile.php", "/pluginfile.php")
         query = [(k, v) for k, v in parse_qsl(parts.query) if k not in ("token", "forcedownload")]
-        return urlunsplit((parts.scheme, parts.netloc, path, urlencode(query), ""))
+        return urlunsplit((parts.scheme, parts.netloc, quote(path, safe="/%:@!$&'()*+,;=~"), urlencode(query), ""))
 
     async def download(self, url: str, dest: Path, max_bytes: int | None = None) -> int:
         """Stream a Moodle file to `dest` (written atomically). Returns the number of bytes."""

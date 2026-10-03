@@ -10,4 +10,5 @@ from . import (
     quizzes,  # noqa: F401
     schedule,  # noqa: F401
     updates,  # noqa: F401
+    webpage,  # noqa: F401
 )
