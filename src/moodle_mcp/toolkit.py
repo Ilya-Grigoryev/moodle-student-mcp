@@ -41,7 +41,7 @@ mcp = MCPServer(
     website_url="https://github.com/Ilya-Grigoryev/moodle-student-mcp",
 )
 
-F = TypeVar("F", bound=Callable[..., Awaitable[str]])
+F = TypeVar("F", bound=Callable[..., Awaitable[Any]])
 
 EXPECTED_ERRORS = (ConfigError, MoodleError, CourseNotFound, AmbiguousCourse, ValueError, LookupError)
 
@@ -53,7 +53,7 @@ class UserError(Exception):
 def moodle_tool(*, title: str, read_only: bool = True, idempotent: bool = True) -> Callable[[F], F]:
     def decorator(fn: F) -> F:
         @functools.wraps(fn)
-        async def wrapper(*args: Any, **kwargs: Any) -> str:
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             try:
                 return await fn(*args, **kwargs)
             except ToolError:
