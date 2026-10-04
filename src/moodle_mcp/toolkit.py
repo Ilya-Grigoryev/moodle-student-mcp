@@ -24,11 +24,14 @@ Read-only access to the user's Moodle (courses, deadlines, grades, files, forums
 - `course` arguments accept a course id, LV number (051050), acronym (SE2, DLfNLP), shortname or part
   of the title. Add a semester to disambiguate older courses: "SE1 2025W".
 - Semesters are codes like 2026W / 2026S; "current" is the default scope of cross-course tools.
-- Outputs contain ids for follow-up calls: `cmid` (activity) → get_activity / read_file / get_quiz_review,
+- Outputs contain ids for follow-up calls: `cmid` (activity) → get_activity / read_file / get_quiz_questions /
+  get_quiz_review,
   `discussion` → get_discussion, `attempt` → get_quiz_review.
 - Typical entry points: get_deadlines (what is due), get_updates (what changed), list_courses,
   get_course (structure + materials), get_grades, get_announcements, search.
 - read_file returns the text of PDFs/slides/docs; download_files syncs course files to a local folder.
+- Quizzes: get_quiz_questions shows the questions (with pictures) of an attempt in progress,
+  get_quiz_review the questions, my answers and the correct answers of finished attempts.
 - Times are local (timezone shown by `status`). Nothing in Moodle is ever modified.
 """
 

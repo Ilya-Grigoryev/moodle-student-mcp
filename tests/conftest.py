@@ -51,6 +51,7 @@ class FakeMoodle:
         self.files: dict[str, bytes] = {}
         self.file_types: dict[str, str] = {}
         self.batch_supported = True
+        self.router: respx.MockRouter | None = None
         self.on(
             "core_webservice_get_site_info",
             lambda p: {"userid": 7, "username": "student", "fullname": "Test Student", "sitename": "Example Moodle",
@@ -107,6 +108,7 @@ def fake(tmp_path: Path) -> Iterator[FakeMoodle]:
     app.configure(settings)
     with respx.mock(assert_all_called=False) as router:
         router.route(host="moodle.example.edu").mock(side_effect=moodle)
+        moodle.router = router  # for routes to other hosts
         yield moodle
 
 

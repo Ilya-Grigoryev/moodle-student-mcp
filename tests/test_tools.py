@@ -230,3 +230,92 @@ async def test_download_preexisting_different_file_is_kept(fake: FakeMoodle, tmp
     await call("download_files", course="SE2", dest=str(dest))
     assert (dest / "notes.txt").read_bytes() == b"something else entirely"
     assert any(p.name.startswith("notes (moodle ") for p in dest.iterdir())
+
+
+# ---------------------------------------------------------------- get_quiz_questions
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 32
+Q_IMAGE = f"""<div class="que multichoice"><div class="content"><div class="formulation clearfix">
+<div class="qtext"><p>How many leaves?</p><img src="{SITE}/pluginfile.php/1/question/questiontext/9/1/5/tree.png" alt="decision tree" /></div>
+<fieldset class="ablock"><div class="answer">
+<div class="r0"><input type="radio" value="0" checked="checked" /><div data-region="answer-label"><span class="answernumber">a. </span>4</div></div>
+<div class="r1"><input type="radio" value="1" /><div data-region="answer-label"><span class="answernumber">b. </span>5</div></div>
+</div></fieldset></div></div></div>"""
+Q_DIAGRAM = """<div class="que shortanswer"><div class="content"><div class="formulation clearfix">
+<div class="qtext"><p>Name the class.</p><svg xmlns="http://www.w3.org/2000/svg" width="100" height="40" viewBox="0 0 100 40">
+<rect x="1" y="1" width="98" height="38" fill="#fff" stroke="#000"/><text x="10" y="25">Order</text></svg></div>
+<div class="ablock"><label>Answer:</label><input type="text" value="" /></div></div></div></div>"""
+
+
+def setup_quiz(fake: FakeMoodle, attempts: list[dict[str, Any]]) -> None:
+    setup_courses(fake)
+    contents_for(fake, [QUIZ_MOD, RES_MOD])
+    fake.on("core_course_get_course_module", {"cm": {"id": 5001, "course": 101, "modname": "quiz", "instance": 77}})
+    fake.on("mod_quiz_get_quizzes_by_courses", {"quizzes": [{"id": 77, "coursemodule": 5001, "name": "Worksheet 1", "navmethod": "free"}]})
+    fake.on("mod_quiz_get_user_attempts", {"attempts": attempts})
+
+
+async def test_quiz_questions_of_open_attempt(fake: FakeMoodle):
+    setup_quiz(fake, [])
+    # A cached "no attempts" answer (e.g. from get_deadlines a moment ago) must not hide a just started attempt.
+    await app.client.call("mod_quiz_get_user_attempts", quizid=77, status="all", includepreviews=False)
+    fake.on("mod_quiz_get_user_attempts", {"attempts": [
+        {"id": 900, "attempt": 1, "state": "inprogress", "timestart": NOW - 600, "timecheckstate": NOW + 1800}]})
+    fake.on("mod_quiz_get_attempt_summary", lambda p: {"questions": [
+        {"slot": 1, "page": 0, "number": 1, "questionnumber": "1", "type": "multichoice", "maxmark": 1,
+         "status": "Answer saved", "html": Q_IMAGE},
+        {"slot": 2, "page": 1, "number": 2, "questionnumber": "2", "type": "shortanswer", "maxmark": 2,
+         "status": "Not yet answered", "html": Q_DIAGRAM},
+    ], "totalunanswered": 1} if str(p["attemptid"]) == "900" else {"exception": "x", "errorcode": "invalidrecord", "message": "?"})
+    fake.files["/1/question/questiontext/9/1/5/tree.png"] = PNG
+    fake.file_types["/1/question/questiontext/9/1/5/tree.png"] = "image/png"
+
+    result = await mcp.call_tool("get_quiz_questions", {"quiz": 5001})
+    out = text_of(result)
+    assert "# Quiz questions: Worksheet 1" in out and "Attempt 1 (id 900) · in progress, not submitted" in out
+    assert "⏱ Time runs out" in out and "2 questions on 2 pages · 1 answered, 1 not yet answered" in out
+    assert "## Page 1" in out and "## Page 2" in out
+    assert f"[image 1: decision tree]({SITE}/pluginfile.php/1/question/questiontext/9/1/5/tree.png)" in out
+    assert "- [x] a. 4" in out and "- [ ] b. 5" in out
+    assert "[image 2: diagram]" in out and "Answer: [___]" in out
+    images = [c for c in result.content if getattr(c, "type", "") == "image"]
+    assert len(images) == 2 and all(i.mime_type == "image/png" for i in images)
+    calls = [fn for fn, _ in fake.calls]
+    assert not any(fn in calls for fn in ("mod_quiz_start_attempt", "mod_quiz_save_attempt", "mod_quiz_process_attempt"))
+
+    one_page = await call("get_quiz_questions", quiz=5001, page=2, include_images=False)
+    assert "Q1" not in one_page and "[diagram — labels: Order]" in one_page
+
+
+async def test_quiz_questions_without_open_attempt(fake: FakeMoodle):
+    setup_quiz(fake, [])
+    assert "No attempt started yet" in await call("get_quiz_questions", quiz=5001)
+    fake.on("mod_quiz_get_user_attempts", {"attempts": [{"id": 899, "attempt": 1, "state": "finished"}]})
+    assert "get_quiz_review(quiz=5001)" in await call("get_quiz_questions", quiz=5001)
+    fake.on("mod_quiz_get_attempt_data", {"exception": "x", "errorcode": "attemptalreadyclosed", "message": "closed"})
+    fake.on("mod_quiz_get_attempt_summary", {"exception": "x", "errorcode": "attemptalreadyclosed", "message": "closed"})
+    with pytest.raises(ToolError, match="already submitted"):
+        await mcp.call_tool("get_quiz_questions", {"attempt_id": 899})
+
+
+async def test_quiz_questions_pictures_from_other_hosts(fake: FakeMoodle):
+    import base64
+
+    import httpx
+
+    setup_quiz(fake, [{"id": 901, "attempt": 1, "state": "inprogress", "timestart": NOW - 60}])
+    html = f"""<div class="que multichoice"><div class="content"><div class="formulation clearfix">
+<div class="qtext"><p>Which version?</p><img src="https://images.example.org/v1.png" />
+<img src="data:image/png;base64,{base64.b64encode(PNG).decode()}" /><img src="https://images.example.org/gone.png" /></div>
+<div class="answer"><div class="r0"><input type="radio" value="0" /><div data-region="answer-label">2.0.0</div></div></div></div></div></div>"""
+    fake.on("mod_quiz_get_attempt_summary", {"questions": [{"slot": 1, "page": 0, "number": 1, "type": "multichoice",
+                                                            "maxmark": 1, "html": html}]})
+    assert fake.router is not None
+    fake.router.get("https://images.example.org/v1.png").mock(
+        return_value=httpx.Response(200, content=PNG, headers={"content-type": "image/png"}))
+    fake.router.get("https://images.example.org/gone.png").mock(return_value=httpx.Response(404))
+    result = await mcp.call_tool("get_quiz_questions", {"quiz": 5001})
+    out = text_of(result)
+    assert "[image 1: picture]" in out and "[image 2: picture]" in out and "[image 3: picture]" in out
+    assert "(image 3 could not be loaded from https://images.example.org/gone.png (HTTP 404))" in out
+    assert len([c for c in result.content if getattr(c, "type", "") == "image"]) == 2

@@ -12,7 +12,7 @@ from moodle_mcp.server import mcp
 GROUPS = [
     ("Discovery", ["status", "list_courses", "get_course", "get_activity", "search"]),
     ("Time", ["get_deadlines", "get_calendar"]),
-    ("Progress", ["get_grades", "get_activity_status", "get_quiz_review"]),
+    ("Progress", ["get_grades", "get_activity_status", "get_quiz_questions", "get_quiz_review"]),
     ("Communication", ["get_announcements", "get_forum", "get_discussion", "get_notifications", "get_messages"]),
     ("Files", ["list_files", "read_file", "download_files"]),
     ("Changes", ["get_updates"]),
@@ -56,6 +56,30 @@ Course total: **81.50** (range 0–100, 82%)
 | Literaturtest · cmid 19812895 | 7.50 | 0–10 | 75% | 10.00 % | Sat 18.04.2026 |
 ## Feedback
 - **A2**: Clear analysis; comments in the code are missing.""",
+    "get_quiz_questions": """\
+# Quiz questions: Worksheet 2
+2026W 051050 Software Engineering 2 · cmid 1234567
+Attempt 1 (id 7654321) · in progress, not submitted · started 12.10. 10:00
+⏱ Time runs out Mon 12.10.2026 10:45 (in 35 min).
+12 questions on 3 pages · 4 answered, 8 not yet answered
+
+## Page 1
+
+### Q2 · multichoice · 1 pt · Answer saved
+*How to answer: choose one or more options.*
+
+Which statements about the class diagram are correct?
+
+ [image 1: diagram]
+- [x] a. An Order has at least one OrderLine.
+- [ ] b. OrderLine inherits from Order.
+
+image 1: (the diagram, as an image)
+
+### Q3 · gapselect · 1 pt · Not yet answered
+*How to answer: pick a word for every gap.*
+
+Top-down testing usually needs [▾ ___ — options: drivers | stubs | drivers and stubs].""",
     "get_quiz_review": """\
 ### Q1 · multianswer · 2.00/3 · Partially correct
 | It uses the downward closure property. | [Apriori ✗ — correct: Both] |

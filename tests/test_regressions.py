@@ -140,3 +140,20 @@ async def test_unexpected_errors_are_reported_as_bugs(fake: FakeMoodle):
     with pytest.raises(ToolError, match="bug in moodle-mcp"):
         await mcp.call_tool("list_courses", {})
     _ = text_of
+
+
+async def test_fetch_public_refuses_private_hosts(fake: FakeMoodle):
+    import httpx
+
+    assert fake.router is not None
+    for url in ("http://images.example.org/a.png", "https://localhost/a.png", "https://10.0.0.1/a.png",
+                "https://[::1]/a.png", f"{SITE}/pluginfile.php/1/a.png"):
+        with pytest.raises(MoodleError):
+            await app.client.fetch_public(url, 1000)
+    fake.router.get("https://images.example.org/redirect.png").mock(
+        return_value=httpx.Response(302, headers={"location": "https://192.168.0.1/secret.png"}))
+    with pytest.raises(MoodleError, match="Refusing"):
+        await app.client.fetch_public("https://images.example.org/redirect.png", 1000)
+    fake.router.get("https://images.example.org/big.png").mock(return_value=httpx.Response(200, content=b"x" * 5000))
+    with pytest.raises(MoodleError, match="larger"):
+        await app.client.fetch_public("https://images.example.org/big.png", 1000)

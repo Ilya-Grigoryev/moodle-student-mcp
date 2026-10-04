@@ -144,6 +144,45 @@ Moodle's 'Activities' overview for a course: per activity due date, submission s
 | `types` | list[str] \| null | null | Activity types to include, e.g. ['assign','quiz']; default: all types with status info |
 | `show_unavailable` | bool | false | Also list activities you cannot access (other groups etc.) |
 
+### `get_quiz_questions`
+
+Questions of my quiz attempt that is in progress (started, not submitted yet): question text, how to answer, every option (choices, dropdown options, drag items, drop zones on images, …), the answer saved so far and the points. Question pictures (photos, screenshots of code, UML/SVG diagrams) are shown as images. Read-only: never starts, saves or submits an attempt, so start it in Moodle first. Finished attempts: get_quiz_review.
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `quiz` | str \| int \| null | null | Quiz cmid or URL |
+| `attempt_id` | int \| null | null | A specific attempt id (from get_activity) |
+| `page` | int \| null | null | Only this page of the quiz (1 = first page) |
+| `include_images` | bool | true | Show the pictures of the questions (diagrams, screenshots, drag & drop backgrounds) as images |
+
+Example output:
+
+```markdown
+# Quiz questions: Worksheet 2
+2026W 051050 Software Engineering 2 · cmid 1234567
+Attempt 1 (id 7654321) · in progress, not submitted · started 12.10. 10:00
+⏱ Time runs out Mon 12.10.2026 10:45 (in 35 min).
+12 questions on 3 pages · 4 answered, 8 not yet answered
+
+## Page 1
+
+### Q2 · multichoice · 1 pt · Answer saved
+*How to answer: choose one or more options.*
+
+Which statements about the class diagram are correct?
+
+ [image 1: diagram]
+- [x] a. An Order has at least one OrderLine.
+- [ ] b. OrderLine inherits from Order.
+
+image 1: (the diagram, as an image)
+
+### Q3 · gapselect · 1 pt · Not yet answered
+*How to answer: pick a word for every gap.*
+
+Top-down testing usually needs [▾ ___ — options: drivers | stubs | drivers and stubs].
+```
+
 ### `get_quiz_review`
 
 Review a quiz attempt question by question: question text, my answer ([x] choices / [filled gaps] ✓✗), marks, the correct answer and feedback when the teacher released them. Great for exam prep.

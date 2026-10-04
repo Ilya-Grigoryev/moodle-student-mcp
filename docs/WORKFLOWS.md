@@ -50,7 +50,8 @@ downloaded again.
 ## Exam preparation
 
 `exam_prep` prompt, or: `search(query="exam", scope="SE2")` for the rules, `read_file` for slides,
-`get_quiz_review(quiz=<cmid>, only_incorrect=true)` for past mistakes, `search(query="…", scope="all")`
+`get_quiz_review(quiz=<cmid>, only_incorrect=true)` for past mistakes, `get_quiz_questions(quiz=<cmid>)` for a quiz
+attempt that is open right now, `search(query="…", scope="all")`
 to find a topic in older courses.
 
 ## Scripts and automation

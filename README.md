@@ -6,7 +6,7 @@
 
 An [MCP](https://modelcontextprotocol.io) server that gives Claude (or any MCP client) **read access to
 your Moodle as a student**: courses of every semester, deadlines with submission status, grades and
-teacher feedback, announcements and forums, quiz reviews, files (read as text or synced to a folder)
+teacher feedback, announcements and forums, quiz questions and reviews, files (read as text or synced to a folder)
 and "what changed since last time".
 
 Built and tested against the University of Vienna's Moodle (moodle.univie.ac.at, Moodle 5.2) but works
@@ -27,6 +27,7 @@ Claude: (get_deadlines) Mon 05.10. 14:00 — SE2 Worksheet 1 closes, not attempt
 - *"Read the slides of lecture 3 in DLfNLP and make me a summary."*
 - *"Download all PDFs of Software Engineering 2 into ~/Uni/SE2/materials."*
 - *"Show me the questions I got wrong in the last Data Analysis quizzes and explain them."*
+- *"I started the SE2 quiz — go through the questions with me."* — question text, options, pictures and UML diagrams.
 - *"Find everything about B-trees in my past courses."*
 
 ## Tools
@@ -42,6 +43,7 @@ Claude: (get_deadlines) Mon 05.10. 14:00 — SE2 Worksheet 1 closes, not attempt
 | `get_calendar` | All calendar events in a date range (incl. booked appointments) |
 | `get_grades` | Per course: every grade item, %, weight, teacher feedback. Without course: semester overview |
 | `get_activity_status` | Moodle's "Activities" overview: due date, submission status, grade per activity — also for plugins (offline quizzes, checkmarks, …) |
+| `get_quiz_questions` | Questions of a quiz attempt in progress: text, how to answer, every option (choices, dropdowns, drag items, drop zones), saved answer, time left; pictures and inline SVG diagrams as images |
 | `get_quiz_review` | Question-by-question review of quiz attempts: my answer, ✓/✗, correct answer, feedback |
 | `get_announcements` | News-forum posts across current courses, full text |
 | `get_forum` / `get_discussion` | Forums of a course, discussions of a forum, whole threads |

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import logging
 import os
@@ -11,7 +12,7 @@ import re
 import tempfile
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlsplit, urlunsplit
 
 import httpx
 
@@ -187,9 +188,11 @@ class MoodleClient:
 
     # ------------------------------------------------------------------ API
     async def call(self, function: str, *, ttl: float | None = None, **params: Any) -> Any:
-        """Call one WS function. Results are cached for a short time (see FUNCTION_TTL)."""
+        """Call one WS function. Results are cached for a short time (see FUNCTION_TTL); ttl=0 always asks Moodle."""
         self._ensure_http()
         flat = flatten_params(params)
+        if ttl == 0:
+            return await self._post(function, flat)
         ttl = FUNCTION_TTL.get(function, DEFAULT_TTL) if ttl is None else ttl
         key = (function, tuple(sorted(flat.items())))
         return await self.cache.get_or_fetch(key, ttl, lambda: self._post(function, flat))
@@ -394,6 +397,47 @@ class MoodleClient:
         finally:
             tmp.unlink(missing_ok=True)
         return written
+
+    @staticmethod
+    def _public_host(url: str) -> bool:
+        """https on a named public host — no localhost, no IP literals (private networks)."""
+        try:
+            parts = urlsplit(url)
+            host = (parts.hostname or "").lower()
+        except ValueError:
+            return False
+        if parts.scheme != "https" or not host or host == "localhost" or host.endswith((".local", ".localhost", ".internal")):
+            return False
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            return True
+        return False
+
+    async def fetch_public(self, url: str, max_bytes: int) -> tuple[bytes, str]:
+        """GET a file from another host (e.g. a picture in a question): never with the token, https only,
+        no private addresses (checked again after every redirect). Returns (content, content type)."""
+        http = self._ensure_http()
+        assert self._sem is not None
+        for _ in range(4):
+            if not self._public_host(url) or self.is_site_url(url):
+                raise MoodleError(f"Refusing to fetch {url[:100]}", "badurl", "download")
+            try:
+                async with self._sem, http.stream("GET", url, follow_redirects=False, timeout=httpx.Timeout(30.0, connect=10.0)) as resp:
+                    if resp.is_redirect and resp.headers.get("location"):
+                        url = urljoin(url, resp.headers["location"])
+                        continue
+                    if resp.status_code >= 400:
+                        raise MoodleError(f"HTTP {resp.status_code}", str(resp.status_code), "download")
+                    body = b""
+                    async for chunk in resp.aiter_bytes():
+                        body += chunk
+                        if len(body) > max_bytes:
+                            raise MoodleError(f"larger than {max_bytes // (1024 * 1024)} MB", "toolarge", "download")
+                    return body, resp.headers.get("content-type", "").split(";")[0].strip().lower()
+            except httpx.HTTPError as exc:
+                raise MoodleError(f"{type(exc).__name__}", "network", "download") from exc
+        raise MoodleError("too many redirects", "redirects", "download")
 
     async def get_text(self, url: str) -> str:
         """Fetch a small text resource (e.g. a book chapter) with token authentication."""

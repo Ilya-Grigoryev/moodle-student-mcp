@@ -218,6 +218,8 @@ async def _quiz(course: Course | None, m: data.Mod) -> list[str]:
         out.extend(attempt_lines(attempts.get("attempts") or [], rec))
     if isinstance(best, dict) and best.get("hasgrade"):
         out.append(f"**Best grade:** {float(best.get('grade') or 0):.2f}" + (f"/{float(rec['grade']):g}" if rec and rec.get("grade") else ""))
+    if isinstance(attempts, dict) and any(a.get("state") in ("inprogress", "overdue") for a in attempts.get("attempts") or []):
+        out.append(f"Questions of the attempt in progress: get_quiz_questions(quiz={m.cmid})")
     out.append(f"Review questions & answers: get_quiz_review(quiz={m.cmid})")
     return out
 

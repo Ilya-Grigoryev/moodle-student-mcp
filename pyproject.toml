@@ -30,6 +30,7 @@ dependencies = [
     "beautifulsoup4>=4.12,<5",
     "markdownify>=1.1,<2",
     "pypdf>=5,<7",
+    "resvg-py>=0.5,<1",
     "tzdata>=2024.1; sys_platform == 'win32'",
 ]
 

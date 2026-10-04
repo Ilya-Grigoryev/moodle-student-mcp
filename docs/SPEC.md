@@ -163,6 +163,14 @@ type, dates, completion, link) plus a type-specific body:
 - Moodle 5 activity overview for every module type in the course: due date, submission status,
   grade, responded, etc. Tables per type, noise columns (toggles, buttons) removed.
 
+**`get_quiz_questions(quiz=None, attempt_id=None, page=None, include_images=True)`**
+- Questions of the attempt in progress (`mod_quiz_get_attempt_summary`): text, how to answer, all options
+  (choices, dropdown options, drag items, drop zones with coordinates, markers, ordering), the saved answer,
+  points, time left. Question pictures are returned as images: Moodle files, `data:` images, images on
+  other hosts (https only, no private addresses, no Moodle credentials) and inline SVG diagrams drawn to
+  PNG (resvg). SVG code listings become code blocks.
+- Never starts, saves or submits an attempt. No attempt in progress → points to Moodle / `get_quiz_review`.
+
 **`get_quiz_review(quiz=None, attempt_id=None, which="last", only_incorrect=False)`**
 - Question-by-question review: text, my answer, correct answer (if released), feedback, marks.
 - `quiz` = cmid/URL; `which` = `last` · `best` · `all`.

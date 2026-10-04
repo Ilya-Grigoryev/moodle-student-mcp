@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- New tool `get_quiz_questions`: the questions of a quiz attempt in progress — text, how to answer, every
+  option (choices, dropdown options, drag items, drop zones on images, markers, ordering, essay), the
+  answer saved so far, points and time left. Question pictures come back as images — Moodle files,
+  embedded `data:` images, images hosted elsewhere (e.g. pasted from Google Docs; fetched over https
+  without any Moodle credentials, never from private addresses) and inline SVG diagrams (e.g. UML from
+  draw.io, drawn to PNG). Code listings drawn as SVG text become code blocks. Read-only: never starts,
+  saves or submits an attempt.
+- Quiz rendering: italic text (e.g. translations, formula symbols) is no longer dropped together with icons;
+  drag & drop onto images shows its drop zones and placed items; SVGs in reviews show code / diagram labels;
+  embedded and externally hosted pictures are marked as `[image]` instead of disappearing.
+- `ttl=0` client calls always ask Moodle instead of returning a cached value.
+- New dependency: `resvg-py` (prebuilt wheels, no system libraries) for drawing SVG diagrams.
+
 ## 2.0.0
 
 Complete rewrite on the MCP Python SDK 2.x (`MCPServer`).
