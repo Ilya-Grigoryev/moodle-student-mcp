@@ -11,6 +11,7 @@ import logging
 import re
 import secrets
 import sys
+from getpass import getpass
 from typing import Any
 
 from . import __version__
@@ -138,12 +139,43 @@ def cmd_check(_: argparse.Namespace) -> int:
 
 
 def cmd_setup(ns: argparse.Namespace) -> int:
-    from .config import normalize_site_url, write_config_file
+    from .config import normalize_site_url
 
     print("Moodle MCP setup\n================\n")
     default_url = ns.url or "https://moodle.univie.ac.at"
-    url = input(f"Moodle site URL [{default_url}]: ").strip() or default_url
+    url = ns.url or input(f"Moodle site URL [{default_url}]: ").strip() or default_url
     url = normalize_site_url(url)
+    if ns.browser or ns.system_browser:
+        from .browser_login import BrowserLoginError, browser_login
+
+        if ns.system_browser:
+            from .system_browser import system_browser_login
+
+            login = system_browser_login
+            print("Opening your default browser. Sign in normally with your existing SSO/passkeys.\n"
+                  "Allow the browser to open Moodle MCP Login when prompted. Press Ctrl+C to cancel.\n")
+        else:
+            login = browser_login
+            print("Opening a private browser window. Sign in to Moodle normally, including SSO/MFA.\n"
+                  "The token will be captured automatically. Close the browser to cancel.\n")
+        try:
+            token, private = asyncio.run(login(url, timeout=ns.timeout))
+        except BrowserLoginError as exc:
+            print(f"✗ {exc}")
+            return 1
+        except KeyboardInterrupt:
+            print("\nBrowser login cancelled.")
+            return 1
+    else:
+        try:
+            token, private = _manual_setup(url)
+        except ValueError as exc:
+            print(f"✗ {exc}")
+            return 1
+    return _save_setup(url, token, private)
+
+
+def _manual_setup(url: str) -> tuple[str, str | None]:
     passport = secrets.randbelow(10**9)
     launch = f"{url}/admin/tool/mobile/launch.php?service=moodle_mobile_app&passport={passport}&urlscheme=moodlemobile"
     print(
@@ -155,12 +187,12 @@ def cmd_setup(ns: argparse.Namespace) -> int:
         "   in the Network tab, or in the 'Open app?' prompt). Copy that whole URL.\n"
         "   You can also paste a plain 32-character token if you already have one.\n"
     )
-    pasted = input("Paste here: ").strip()
-    try:
-        token, private = decode_launch_token(pasted)
-    except ValueError as exc:
-        print(f"✗ {exc}")
-        return 1
+    return decode_launch_token(getpass("Paste here (hidden): ").strip())
+
+
+def _save_setup(url: str, token: str, private: str | None) -> int:
+    from .config import write_config_file
+
     print(f"\n✓ Token found{' (with private token)' if private else ''}. Checking it…")
 
     from .app import app
@@ -177,12 +209,11 @@ def cmd_setup(ns: argparse.Namespace) -> int:
     try:
         info = asyncio.run(verify())
     except Exception as exc:
-        print(f"✗ Moodle rejected the token: {exc}")
+        print(f"✗ Could not verify the Moodle token ({type(exc).__name__}). Configuration was not changed.")
         return 1
     print(f"✓ Logged in as {info.get('fullname')} ({info.get('username')})")
-    values: dict[str, Any] = {"url": url, "token": token}
-    if private:
-        values["private_token"] = private
+    # Clear any private token from a previous account when this login has none.
+    values: dict[str, Any] = {"url": url, "token": token, "private_token": private or ""}
     path = write_config_file(values)
     print(f"✓ Saved to {path} (permissions 600)\n")
     exe = sys.argv[0] if sys.argv and sys.argv[0].endswith("moodle-mcp") else "moodle-mcp"
@@ -200,6 +231,10 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("serve", help="Run the MCP server on stdio (default)")
     p_setup = sub.add_parser("setup", help="Interactive token setup")
     p_setup.add_argument("--url", help="Moodle site URL")
+    browser_mode = p_setup.add_mutually_exclusive_group()
+    browser_mode.add_argument("--browser", action="store_true", help="Sign in through a private browser (requires the browser extra)")
+    browser_mode.add_argument("--system-browser", action="store_true", help="Use your default browser and passkeys (macOS)")
+    p_setup.add_argument("--timeout", type=float, default=300, help="Browser login timeout in seconds (default: 300)")
     sub.add_parser("check", help="Check configuration and connection")
     sub.add_parser("tools", help="List available tools")
     p_call = sub.add_parser("call", help="Call a tool: moodle-mcp call get_deadlines days=7")
