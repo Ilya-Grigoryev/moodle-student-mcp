@@ -83,7 +83,51 @@ This installs the `moodle-mcp` command. Update later with `uv tool upgrade moodl
 ## Set up your token
 
 Moodle's mobile app uses a personal *web-service token*. You can get the same token from your browser
-session — no admin rights needed. Run:
+session — no admin rights needed.
+
+### Default browser with your existing passkeys (macOS)
+
+```bash
+moodle-mcp setup --system-browser --url https://moodle.univie.ac.at
+```
+
+This opens your default browser with your existing profile, SSO session and password manager.
+Sign in normally and allow the browser to open **Moodle MCP Login** when prompted. A temporary
+macOS URL handler receives the token automatically; no browser dependency or DevTools is needed.
+The handler and its private callback file are removed after login, cancellation or timeout.
+This mode uses macOS's `osacompile`, `codesign` and LaunchServices tools.
+
+If your institution forces a particular mobile-app URL scheme, use the private-browser mode below.
+
+### Automatic private-browser login (optional, cross-platform)
+
+Install the browser extra and Chromium once. For example, in a virtual environment:
+
+```bash
+python -m pip install "moodle-student-mcp[browser] @ git+https://github.com/Ilya-Grigoryev/moodle-student-mcp"
+python -m playwright install chromium
+moodle-mcp setup --browser --url https://moodle.univie.ac.at
+```
+
+For a local checkout, use `python -m pip install -e ".[browser]"` instead. Use the Python
+interpreter from the environment where Moodle MCP is installed.
+
+A separate browser window opens. Sign in normally, including your institution's SSO and MFA;
+the token is captured, verified against Moodle, and saved automatically with permissions `600`.
+No DevTools or copying is required. The login response is checked against the selected site and
+this login attempt. Browser cookies/profile are not saved. Passwords and MFA codes stay in the
+browser; they are never requested in the terminal or sent to your AI assistant.
+
+This isolated window does not have your existing browser profile or synced passkeys. On macOS,
+use `--system-browser` above if you need your existing password manager.
+
+Close the private window or press Ctrl+C to cancel. The default timeout is five minutes; use
+`--timeout 600` for more time. If the browser cannot start or your Moodle disables mobile
+web services, setup reports an error without changing the saved configuration.
+
+### Manual setup (no browser dependency)
+
+The original copy-and-paste flow remains available:
 
 ```bash
 moodle-mcp setup
