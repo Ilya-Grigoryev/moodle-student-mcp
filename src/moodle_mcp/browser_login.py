@@ -9,6 +9,7 @@ import hashlib
 import math
 import re
 import secrets
+import sys
 from contextlib import suppress
 from urllib.parse import parse_qs, urlencode, urlsplit
 
@@ -19,6 +20,18 @@ class BrowserLoginError(Exception):
     """A safe, actionable error that never includes browser URLs or credentials."""
 
 
+def split_launch_payload(encoded: str) -> tuple[str, str, str | None] | None:
+    """Decode Moodle's base64 launch payload `binding:::token[:::private token]` (either base64 alphabet)."""
+    try:
+        decoded = base64.b64decode(encoded + "=" * (-len(encoded) % 4), altchars=b"-_", validate=True).decode()
+    except (binascii.Error, UnicodeError, ValueError):
+        return None
+    parts = decoded.split(":::")
+    if len(parts) not in (2, 3) or not re.fullmatch(r"[a-zA-Z0-9]{32}", parts[1]):
+        return None
+    return parts[0], parts[1], (parts[2] or None) if len(parts) == 3 else None
+
+
 def decode_callback(callback: str, site_url: str, passport: str) -> tuple[str, str | None]:
     """Validate Moodle's site/passport binding before accepting its credentials.
 
@@ -26,21 +39,14 @@ def decode_callback(callback: str, site_url: str, passport: str) -> tuple[str, s
     public/admin/tool/mobile/launch.php builds md5(wwwroot + passport).
     """
     match = re.fullmatch(r"[a-zA-Z][a-zA-Z0-9+.-]*://token=([A-Za-z0-9+/=_-]{1,16384})", callback)
-    if not match:
+    payload = split_launch_payload(match.group(1)) if match else None
+    if payload is None:
         raise BrowserLoginError("Moodle returned an invalid mobile-app callback.")
-    encoded = match.group(1)
-    try:
-        decoded = base64.b64decode(encoded + "=" * (-len(encoded) % 4), altchars=b"-_", validate=True).decode()
-    except (binascii.Error, UnicodeError, ValueError):
-        raise BrowserLoginError("Moodle returned an invalid mobile-app callback.") from None
-    parts = decoded.split(":::")
+    binding, token, private = payload
     expected = hashlib.md5((site_url + passport).encode(), usedforsecurity=False).hexdigest()
-    if (len(parts) not in (2, 3) or not re.fullmatch(r"[0-9a-f]{32}", parts[0])
-            or not secrets.compare_digest(parts[0], expected)):
+    if not re.fullmatch(r"[0-9a-f]{32}", binding) or not secrets.compare_digest(binding, expected):
         raise BrowserLoginError("Moodle's callback does not match this login attempt. Please retry.")
-    if not re.fullmatch(r"[a-zA-Z0-9]{32}", parts[1]):
-        raise BrowserLoginError("Moodle returned an invalid mobile-app token.")
-    return parts[1], (parts[2] or None) if len(parts) == 3 else None
+    return token, private
 
 
 async def browser_login(site_url: str, timeout: float = 300, *, headless: bool = False) -> tuple[str, str | None]:
@@ -53,8 +59,9 @@ async def browser_login(site_url: str, timeout: float = 300, *, headless: bool =
         from playwright.async_api import Error, async_playwright
     except ImportError:
         raise BrowserLoginError(
-            'Browser login needs the optional dependency: install "moodle-student-mcp[browser]", '
-            "then run `python -m playwright install chromium`. Or use `moodle-mcp setup` for manual setup."
+            'Browser login needs the optional dependency: install "moodle-student-mcp[browser]" '
+            f"(see README → Set up your token), then run `{sys.executable} -m playwright install chromium`. "
+            "Or use `moodle-mcp setup` for manual setup."
         ) from None
 
     if not math.isfinite(timeout) or timeout <= 0:
@@ -116,8 +123,9 @@ async def browser_login(site_url: str, timeout: float = 300, *, headless: bool =
             try:
                 browser = await playwright.chromium.launch(headless=headless)
             except Error:
+                # sys.executable: the interpreter this tool runs in (e.g. uv's tool environment).
                 raise BrowserLoginError(
-                    "Could not start Chromium. Run `python -m playwright install chromium` and retry "
+                    f"Could not start Chromium. Run `{sys.executable} -m playwright install chromium` and retry "
                     "from a desktop session, or use `moodle-mcp setup` for manual setup."
                 ) from None
             try:

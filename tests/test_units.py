@@ -107,6 +107,10 @@ def test_decode_launch_token():
     assert decode_launch_token(f"moodlemobile://token={blob}") == (token, private)
     blob2 = base64.b64encode(f"sig:::{token}".encode()).decode()
     assert decode_launch_token(blob2) == (token, None)
+    odd = "?~" * 32  # its base64 needs '+' and '/', i.e. '-' and '_' in the URL-safe alphabet
+    blob3 = base64.urlsafe_b64encode(f"sig:::{token}:::{odd}".encode()).decode().rstrip("=")
+    assert set(blob3) & set("-_")
+    assert decode_launch_token(blob3) == (token, odd)
     assert decode_launch_token("0123456789abcdef0123456789abcdef") == ("0123456789abcdef0123456789abcdef", None)
     with pytest.raises(ValueError):
         decode_launch_token("nonsense")

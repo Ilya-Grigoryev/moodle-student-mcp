@@ -14,6 +14,13 @@
   embedded and externally hosted pictures are marked as `[image]` instead of disappearing.
 - `ttl=0` client calls always ask Moodle instead of returning a cached value.
 - New dependency: `resvg-py` (prebuilt wheels, no system libraries) for drawing SVG diagrams.
+- `moodle-mcp setup --system-browser` (macOS): sign in with your default browser, its SSO session and
+  passkeys; a temporary per-login URL handler receives the token, no DevTools needed.
+- `moodle-mcp setup --browser`: sign in through an isolated Chromium window (optional `browser` extra,
+  Playwright); the token is captured from Moodle's launch response. Both modes check that the response
+  belongs to the chosen site and this login attempt, and verify the token before saving.
+- `setup --url` no longer asks for the URL again; `--timeout` limits the browser login.
+- Setup keeps a saved private token when the token is unchanged and drops it when the token changes.
 
 ## 2.0.0
 

@@ -113,6 +113,36 @@ def test_verified_login_clears_stale_private_token(monkeypatch, tmp_path):
     assert path.stat().st_mode & 0o777 == 0o600
 
 
+def test_relogin_with_same_token_keeps_private_token(monkeypatch, tmp_path):
+    from moodle_mcp.client import MoodleClient
+
+    monkeypatch.setenv("MOODLE_MCP_CONFIG", str(tmp_path / "config.json"))
+    write_config_file({"url": SITE, "token": TOKEN, "private_token": PRIVATE})
+
+    async def verify(self):
+        return {"fullname": "Student", "username": "student"}
+
+    monkeypatch.setattr(MoodleClient, "site_info", verify)
+    # Without a fresh login Moodle omits the private token; the saved one still belongs to this token.
+    assert _save_setup(SITE, TOKEN, None) == 0
+    assert read_config_file()["private_token"] == PRIVATE
+
+
+def test_moodle_rejection_reason_is_shown(monkeypatch, tmp_path, capsys):
+    from moodle_mcp.client import MoodleClient, MoodleError
+
+    monkeypatch.setenv("MOODLE_MCP_CONFIG", str(tmp_path / "config.json"))
+    write_config_file({"url": SITE, "token": "old-token"})
+
+    async def reject(self):
+        raise MoodleError("Invalid token - token not found", "invalidtoken", "core_webservice_get_site_info")
+
+    monkeypatch.setattr(MoodleClient, "site_info", reject)
+    assert _save_setup(SITE, TOKEN, None) == 1
+    assert "Invalid token - token not found" in capsys.readouterr().out
+    assert read_config_file()["token"] == "old-token"
+
+
 @pytest.fixture
 def fake_login_site():
     class Handler(BaseHTTPRequestHandler):
