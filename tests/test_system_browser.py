@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
+from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -62,8 +65,10 @@ async def test_system_browser_unsupported_platform(monkeypatch):
 
 @pytest.mark.skipif(sys.platform != "darwin" or not os.environ.get("MOODLE_TEST_SYSTEM_BROWSER"),
                     reason="Set MOODLE_TEST_SYSTEM_BROWSER=1 on macOS to test the real URL handler")
-async def test_real_macos_handler(monkeypatch, tmp_path):
-    monkeypatch.setenv("MOODLE_MCP_CONFIG", str(tmp_path / "config.json"))
+async def test_real_macos_handler(monkeypatch):
+    # Not pytest's tmp_path: LaunchServices ignores applications in the system temporary directory.
+    folder = Path(tempfile.mkdtemp(prefix=".moodle-mcp-test-", dir=Path.home()))
+    monkeypatch.setenv("MOODLE_MCP_CONFIG", str(folder / "config.json"))
 
     def fake_moodle(url):
         query = parse_qs(urlsplit(url).query)
@@ -72,5 +77,8 @@ async def test_real_macos_handler(monkeypatch, tmp_path):
         return True
 
     monkeypatch.setattr(native.webbrowser, "open", fake_moodle)
-    assert await native.system_browser_login(SITE, timeout=15) == (TOKEN, PRIVATE)
-    assert list(tmp_path.iterdir()) == []
+    try:
+        assert await native.system_browser_login(SITE, timeout=15) == (TOKEN, PRIVATE)
+        assert list(folder.iterdir()) == []
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)

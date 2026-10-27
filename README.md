@@ -101,7 +101,15 @@ If your institution forces a particular mobile-app URL scheme, use the private-b
 
 ### Automatic private-browser login (optional, cross-platform)
 
-Install the browser extra and Chromium once. For example, in a virtual environment:
+Install the browser extra and Chromium once. With uv (reinstalls the tool with the extra):
+
+```bash
+uv tool install --force "moodle-student-mcp[browser] @ git+https://github.com/Ilya-Grigoryev/moodle-student-mcp"
+"$(uv tool dir)/moodle-student-mcp/bin/python" -m playwright install chromium
+moodle-mcp setup --browser --url https://moodle.univie.ac.at
+```
+
+Or with pip in a virtual environment:
 
 ```bash
 python -m pip install "moodle-student-mcp[browser] @ git+https://github.com/Ilya-Grigoryev/moodle-student-mcp"
@@ -109,8 +117,9 @@ python -m playwright install chromium
 moodle-mcp setup --browser --url https://moodle.univie.ac.at
 ```
 
-For a local checkout, use `python -m pip install -e ".[browser]"` instead. Use the Python
-interpreter from the environment where Moodle MCP is installed.
+For a local checkout, use `uv tool install --force "moodle-student-mcp[browser] @ /path/to/moodle-student-mcp"`
+or `python -m pip install -e ".[browser]"` instead. Chromium must be installed with the Python
+interpreter Moodle MCP runs in; if it is missing, `setup --browser` prints the exact command.
 
 A separate browser window opens. Sign in normally, including your institution's SSO and MFA;
 the token is captured, verified against Moodle, and saved automatically with permissions `600`.
@@ -216,7 +225,11 @@ needs the *private token* that Moodle only hands out right after a fresh login:
 
 1. Log out of Moodle and log in again.
 2. Immediately run `moodle-mcp setup` and follow the steps — the pasted URL then contains the private
-   token as well, and `fetch_page` / `get_activity` start showing those pages.
+   token as well, and `fetch_page` / `get_activity` start showing those pages. The browser modes
+   (`--browser`, `--system-browser`) pick it up the same way.
+
+Running setup again without a fresh login keeps the private token saved for the same token; a new token
+(e.g. another account) replaces it.
 
 Moodle allows one auto-login every 6 minutes; the session cookie is cached in the state directory.
 

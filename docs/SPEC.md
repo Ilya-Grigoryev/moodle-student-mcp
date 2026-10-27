@@ -62,6 +62,8 @@ service, 460 web-service functions available).
 src/moodle_mcp/
   __main__.py      python -m moodle_mcp
   cli.py           moodle-mcp [serve|setup|check|call|tools]
+  browser_login.py setup --browser: Chromium login (optional Playwright), launch-callback decoding/binding
+  system_browser.py setup --system-browser: macOS default browser + temporary URL handler
   config.py        settings from env + ~/.config/moodle-mcp/config.json
   client.py        async Moodle WS client: params flattening, settings, errors, retries, batch, cache, downloads
   cache.py         TTL cache
@@ -232,6 +234,7 @@ course), `exam_prep(course)` (materials + quiz reviews → study plan), `semeste
 |---|---|
 | `moodle-mcp` / `moodle-mcp serve` | Run the MCP server on stdio |
 | `moodle-mcp setup` | Guided token setup: prints the launch URL, decodes the pasted `moodlemobile://token=…`, validates, writes config (0600), prints client config snippets |
+| `moodle-mcp setup --browser` / `--system-browser` | Same, but captures the token automatically: isolated Chromium (optional `browser` extra) or the macOS default browser via a temporary URL handler; the callback must match the site and this attempt's passport |
 | `moodle-mcp check` | Diagnostics (config, token, functions, web session) |
 | `moodle-mcp tools` | List tools with descriptions |
 | `moodle-mcp call <tool> [key=value …]` | Run any tool from the shell (scripting, debugging) |

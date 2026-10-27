@@ -4,14 +4,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import base64
-import binascii
 import json
 import logging
 import re
 import secrets
 import sys
-from getpass import getpass
 from typing import Any
 
 from . import __version__
@@ -92,22 +89,17 @@ def cmd_serve(_: argparse.Namespace) -> int:
 
 def decode_launch_token(text: str) -> tuple[str, str | None]:
     """Extract (token, private_token) from a `moodlemobile://token=…` URL, its base64 part, or a raw token."""
+    from .browser_login import split_launch_payload
+
     s = text.strip().strip("'\"")
     m = re.search(r"token=([A-Za-z0-9+/=_-]+)", s)
     candidate = m.group(1) if m else s
     if re.fullmatch(r"[0-9a-f]{32}", candidate):
         return candidate, None
-    padded = candidate + "=" * (-len(candidate) % 4)
-    for decoder in (base64.b64decode, base64.urlsafe_b64decode):
-        try:
-            decoded = decoder(padded).decode("utf-8", "replace")
-        except (binascii.Error, ValueError):
-            continue
-        parts = decoded.split(":::")
-        if len(parts) >= 2 and re.fullmatch(r"[0-9a-zA-Z]{32}", parts[1]):
-            private = parts[2] if len(parts) > 2 and parts[2] else None
-            return parts[1], private
-    raise ValueError("Could not find a token in the pasted text.")
+    payload = split_launch_payload(candidate)
+    if payload is None:
+        raise ValueError("Could not find a token in the pasted text.")
+    return payload[1], payload[2]
 
 
 async def _check(verbose: bool = True) -> int:
@@ -187,15 +179,16 @@ def _manual_setup(url: str) -> tuple[str, str | None]:
         "   in the Network tab, or in the 'Open app?' prompt). Copy that whole URL.\n"
         "   You can also paste a plain 32-character token if you already have one.\n"
     )
-    return decode_launch_token(getpass("Paste here (hidden): ").strip())
+    return decode_launch_token(input("Paste here: "))
 
 
 def _save_setup(url: str, token: str, private: str | None) -> int:
-    from .config import write_config_file
+    from .config import read_config_file, write_config_file
 
     print(f"\n✓ Token found{' (with private token)' if private else ''}. Checking it…")
 
     from .app import app
+    from .client import MoodleError
     from .config import Settings
 
     app.configure(Settings(site_url=url, token=token, private_token=private))
@@ -208,12 +201,26 @@ def _save_setup(url: str, token: str, private: str | None) -> int:
 
     try:
         info = asyncio.run(verify())
+    except MoodleError as exc:
+        # Moodle's own reason (invalid token, web services disabled, unreachable); the token travels
+        # in the POST body and is never part of it.
+        print(f"✗ Could not verify the Moodle token: {exc}\n  Configuration was not changed.")
+        return 1
     except Exception as exc:
         print(f"✗ Could not verify the Moodle token ({type(exc).__name__}). Configuration was not changed.")
         return 1
     print(f"✓ Logged in as {info.get('fullname')} ({info.get('username')})")
-    # Clear any private token from a previous account when this login has none.
-    values: dict[str, Any] = {"url": url, "token": token, "private_token": private or ""}
+    values: dict[str, Any] = {"url": url, "token": token}
+    saved = read_config_file()
+    if private:
+        values["private_token"] = private
+    elif saved.get("token") != token:
+        # A private token belongs to its token: drop one saved for a different token or account.
+        values["private_token"] = ""
+    elif saved.get("private_token"):
+        # Moodle sends the private token only right after a fresh login, but the one saved
+        # earlier for this same token stays valid.
+        print("✓ Kept the private token saved earlier for this token")
     path = write_config_file(values)
     print(f"✓ Saved to {path} (permissions 600)\n")
     exe = sys.argv[0] if sys.argv and sys.argv[0].endswith("moodle-mcp") else "moodle-mcp"
